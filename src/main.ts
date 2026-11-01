@@ -307,9 +307,9 @@ async function main(): Promise<void> {
       await writeFile(boot,
         `#!/data/data/com.termux/files/usr/bin/sh\n` +
         `termux-wake-lock\n` +
-        `cd "${BASE}" && node src/main.ts --daemon --root /sdcard >> ${home}/.clean_select/daemon.out 2>&1 &\n`);
+        `cd "${BASE}" && sh ./watchdog.sh >> ${home}/.clean_select/watchdog.out 2>&1 &\n`);
       await chmod(boot, 0o755);
-      console.log(`boot instalado: ${boot} (o daemon sobe junto com o Termux)`);
+      console.log(`boot instalado: ${boot} (watchdog sobe junto com o Termux)`);
     } catch {
       console.log("sem Termux:Boot — o daemon pode ser iniciado manualmente com --daemon");
     }
@@ -317,13 +317,15 @@ async function main(): Promise<void> {
     try {
       await exec("termux-job-scheduler", ["--script", join(BASE, "run.sh"), "--period-ms", "86400000", "--persisted", "true"]);
       await exec("termux-job-scheduler", ["--script", join(BASE, "run-semanal.sh"), "--period-ms", "604800000", "--persisted", "true"]);
-      console.log("agendas instaladas: diária (24h) e semanal (7d) via termux-job-scheduler.");
+      // watchdog de plantão: a cada hora ressuscita o daemon se ele morreu
+      await exec("termux-job-scheduler", ["--script", join(BASE, "check-alive.sh"), "--period-ms", "3600000", "--persisted", "true"]);
+      console.log("agendas instaladas: diária, semanal e check-alive (1h).");
     } catch {
       console.log("termux-job-scheduler ausente — instale o app Termux:API. " +
-        "Enquanto isso, o --daemon já cobre a automação.");
+        "Enquanto isso, watchdog.sh já recoloca o daemon se ele cair.");
     }
-    console.log("resumo: daemon (boot + --daemon) faz a limpeza contínua; " +
-      "os jobs são redundância caso o daemon morra.");
+    console.log("resumo: watchdog.sh recoloca o daemon a cada queda; " +
+      "check-alive.sh ressuscita se até o watchdog morrer; boot sobe tudo.");
     return;
   }
   if (v.daemon) {

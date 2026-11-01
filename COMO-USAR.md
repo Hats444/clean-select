@@ -136,6 +136,9 @@ O jeito mais fácil de nunca precisar rodar na mão:
 # sobe o daemon agora (fica rodando nesta sessão do Termux)
 node src/main.ts --daemon
 
+# ou o supervisor: se o daemon cair por QUALQUER motivo, volta sozinho
+sh watchdog.sh
+
 # instala tudo de uma vez: auto-start no boot + jobs diário e semanal
 node src/main.ts --instalar-agenda
 ```
@@ -164,13 +167,14 @@ Ele continua limpando em cada ciclo **até a memória livre atingir `CS_FREE_TAR
 
 Parar o daemon: `Ctrl+C` ou delete `~/.clean_select/lock`.
 
-Depois de `--instalar-agenda`, três camadas cuidam de você:
+Depois de `--instalar-agenda`, quatro camadas garantem que ele nunca fica morto:
 
 | Camada | Como funciona |
 |--------|---------------|
-| Boot | `~/.termux/boot/clean_select.sh` sobe o daemon quando o Termux abre (precisa do app Termux:Boot) |
-| Daemon | roda contínuo, decide sozinho, dispara emergência se espaço <10% |
-| Jobs | `termux-job-scheduler` roda `run.sh` (diário) e `run-semanal.sh` (domingo) como redundância, com wake-lock e notificação |
+| Boot | `~/.termux/boot/clean_select.sh` sobe o **watchdog** quando o Termux abre (precisa do app Termux:Boot) |
+| Watchdog | `watchdog.sh` — se o daemon morrer por qualquer motivo, recoloca de pé (backoff até 5min) |
+| Daemon | roda contínuo, decide sozinho, dispara emergência se espaço <`CS_FREE_EMERGENCY_PCT`% |
+| Check-alive | `check-alive.sh` a cada 1h via termux-job-scheduler: se até o watchdog morreu, ressuscita tudo |
 
 > Seguro por padrão: o piloto automático **nunca** toca em itens
 > `[confirmar]` — esses esperam você rodar `--apply` na mão.
