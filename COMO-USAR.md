@@ -92,16 +92,20 @@ node src/main.ts --daemon
 node src/main.ts --instalar-agenda
 ```
 
-O que o daemon faz sozinho:
+O que o daemon faz sozinho — **escalonado pelo espaço livre**:
+
+| Espaço livre | Modo | O que ele aplica sem perguntar |
+|---|---|---|
+| ≥ 25% | `diario` (a cada `--a-cada` h) | só `[auto]`: caches, logs, temps, thumbs + dedupe zonas seguras |
+| 10–25% | `reforco` (todo ciclo) | tudo do diário **+** `[confirmar]` seguros: backups velhos (mantém 3), APKs 30d+, pastas vazias, node_modules, dist — e idade mínima cai p/ 1 dia |
+| < 10% | `emergencia` (todo ciclo) | tudo acima **+** `[AGR]`: mídia antiga do WhatsApp (F3), screenshots/screenrecord velhas — idade mínima zero |
 
 - **A cada 30 min** (`--intervalo <min>`) checa o espaço livre.
-- **A cada 24 h** (`--a-cada <horas>`) roda a limpeza diária — só regras
-  `[auto]` + dedupe nas zonas seguras. Nada que exija confirmação é tocado.
-- **Espaço livre < 10%** → modo emergência na hora: libera o máximo seguro,
-  incluindo regras `[AGR]` e poda de node_modules.
-- Lixeira de 7 dias é esvaziada automaticamente a cada ciclo.
-- Estado ao vivo em `~/.clean_select/daemon.json` (heartbeat com horário,
-  espaço livre e última limpeza) — dá pra checar com `--stats`.
+- Abaixo de 25% ele **não espera** a janela diária: varre em todo ciclo até sobrar espaço.
+- Dedupe: zonas seguras nos modos normal/reforço; todas as zonas na emergência.
+- Lixeira de 7 dias esvaziada automaticamente; tudo que sai é restaurável.
+- Mostra o espaço livre **real** medido no disco depois de cada ciclo.
+- Estado ao vivo em `~/.clean_select/daemon.json` — dá pra checar com `--stats`.
 
 Parar o daemon: `Ctrl+C` ou delete `~/.clean_select/lock`.
 

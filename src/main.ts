@@ -307,14 +307,15 @@ async function main(): Promise<void> {
     try {
       const { daemonLoop } = await import("./daemon.ts");
       await daemonLoop(root, rules, {
-        scan: async (emergency) => {
+        scan: async (mode) => {
           const ignore = await loadIgnore();
+          // quanto mais apertado o espaço, menor a idade mínima e maior o escopo
           const ctx: ClassifyCtx = {
             rules,
-            ageDays: Number(v.age ?? 3),
-            aggressive: emergency,                     // emergência libera [AGR]
-            only: emergency ? undefined : new Set(["D", "E", "F", "G", "H", "I"]),
-            pruneModules: emergency,
+            ageDays: mode === "emergencia" ? 0 : mode === "reforco" ? 1 : Number(v.age ?? 3),
+            aggressive: mode === "emergencia",
+            only: mode === "diario" ? new Set(["D", "E", "F", "G", "H", "I"]) : undefined,
+            pruneModules: mode !== "diario",
             termux: !!v.termux,
             ignoreGlobs: ignore,
           };

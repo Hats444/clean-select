@@ -6,9 +6,11 @@ import { applyFindings, runningCwds } from "./cleaner.ts";
 import { findDuplicates } from "./dedupe.ts";
 import { recordRun } from "./stats.ts";
 
+export type DaemonMode = "diario" | "reforco" | "emergencia";
+
 export interface DaemonHooks {
   /** roda a varredura completa e devolve os dados necessários */
-  scan: (emergency: boolean) => Promise<{
+  scan: (mode: DaemonMode) => Promise<{
     findings: Finding[];
     dedupeCandidates: { path: string; rel: string; size: number; mtimeMs: number }[];
     projectDirs: Set<string>;
@@ -16,13 +18,31 @@ export interface DaemonHooks {
   }>;
 }
 
+/** quão fundo o piloto automático vai conforme o espaço livre */
+export function modeFor(freePct: number): DaemonMode {
+  if (freePct < 10) return "emergencia";
+  if (freePct < 25) return "reforco";
+  return "diario";
+}
+
+/** o que cada modo pode aplicar sem perguntar */
+export function allowedInMode(f: Finding, mode: DaemonMode): boolean {
+  if (f.letter === "K" || f.level === "relatorio") return false;
+  if (mode === "diario") return f.level === "auto";
+  // reforco/emergencia: auto + confirmar seguro (tudo já passa pela lixeira)
+  return f.level === "auto" || f.level === "confirmar";
+}
+
 const HEARTBEAT = `${CS_HOME}/daemon.json`;
 
 /**
- * Modo automático: dorme, acorda a cada `checkMin` minutos e decide sozinho.
- * - espaço livre < 10% -> modo emergência (limpa o máximo seguro)
- * - senão, a cada `runHours` horas -> limpeza diária (só regras [auto] + dedupe --auto)
- * Nunca pergunta nada: o que exige confirmação fica para a execução manual.
+ * Piloto automático escalonado — quanto menos espaço, mais fundo ele vai:
+ *   >= 25% livre: diario    — só regras [auto] + dedupe --auto
+ *   10–25%:       reforco   — + categorias [confirmar] seguras (backups velhos,
+ *                            APKs, pastas vazias, node_modules, dist) e idade menor
+ *   < 10%:        emergencia — tudo acima + regras [AGR] (mídia antiga, F3, G.shots)
+ * A varredura completa roda a cada `runHours` h; abaixo de 25% roda em todo ciclo.
+ * Nada é apagado de verdade: tudo passa pela lixeira de 7 dias.
  */
 export async function daemonLoop(
   root: string,
@@ -59,25 +79,25 @@ export async function daemonLoop(
         freePct = (s.bavail / s.blocks) * 100;
       } catch { /* statfs indisponível */ }
 
-      const emergency = freePct < 10;
+      const mode = modeFor(freePct);
       const due = Date.now() - lastRun > runMs;
+      // abaixo de 25% a gente não espera a janela diária: varre em todo ciclo
+      const shouldRun = mode !== "diario" || due;
 
-      if (emergency || due) {
-        const mode = emergency ? "emergencia" : "diario";
+      if (shouldRun) {
         console.log(`${nowIso()} [${mode}] espaço livre ${freePct.toFixed(1)}% — varrendo…`);
         const t0 = Date.now();
-        const { findings, dedupeCandidates, projectDirs } = await hooks.scan(emergency);
+        const { findings, dedupeCandidates, projectDirs } = await hooks.scan(mode);
 
-        // só o que é [auto] entra no piloto automático (K nunca)
-        const auto = findings.filter((f) => f.level === "auto" && f.letter !== "K");
+        const auto = findings.filter((f) => allowedInMode(f, mode));
         const cwds = await runningCwds();
         const r = await applyFindings(auto, { cwds, root });
 
-        // dedupe restrito às zonas seguras (--auto)
+        // dedupe: zonas seguras no diário/reforço; todas as zonas na emergência
         const { groups } = await findDuplicates(dedupeCandidates, {
           priorities: rules.dedupePriority,
           autoZones: rules.dedupeAutoZones,
-          auto: true,
+          auto: mode !== "emergencia",
           projectDirs,
         });
         const dupFindings: Finding[] = [];
@@ -100,7 +120,14 @@ export async function daemonLoop(
           freedByLetter: {}, freedTotal: freed, durationMs: Date.now() - t0,
         });
         lastRun = Date.now();
-        console.log(`${nowIso()} [${mode}] feito: ${r.removed + rd.removed} itens, ${mb(freed)} MB liberados`);
+        // mede o efeito real no disco em vez de só somar o que mandou p/ lixeira
+        let realDelta = "";
+        try {
+          const s2 = await statfs(root);
+          const nowPct = (s2.bavail / s2.blocks) * 100;
+          realDelta = ` | livre agora ${nowPct.toFixed(1)}%`;
+        } catch { /* ok */ }
+        console.log(`${nowIso()} [${mode}] feito: ${r.removed + rd.removed} itens, ${mb(freed)} MB p/ lixeira${realDelta}`);
         await beat({ mode, freedMb: Math.round(freed / 1048576) });
       } else {
         await beat({ idle: true, freePct: Number(freePct.toFixed(1)) });
