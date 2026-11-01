@@ -90,6 +90,7 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
     /backup|backups\/apps/i.test(rel) || /\.(zip|rar|7z|apk|xapk|apkm|apks)$/i.test(rel);
 
   const dirSizes = new Map<string, number>();
+  let seen = 0;
   const stats = await scan({
     root,
     skipDir: undefined,
@@ -103,6 +104,7 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
       const parent = dirname(e.rel).replace(/\\/g, "/");
       dirSizes.set(parent, (dirSizes.get(parent) ?? 0) + e.size);
       info.filesIn.add(parent);
+      if (++seen % 20000 === 0) console.log(`  …${seen} arquivos`);
       if (base === "package.json" || base === "tsconfig.json" || base === "requirements.txt") {
         pkgJsonDirs.add(parent);
         projectDirs.add(parent);
@@ -172,7 +174,9 @@ async function applyAll(findings: Finding[], root: string, rules: Rules, totalFi
   const doApply = async (list: Finding[]) => {
     const r = await applyFindings(list, { cwds, root });
     freedTotal += r.freed;
-    for (const f of list) freedByLetter[f.letter] = (freedByLetter[f.letter] ?? 0) + f.size;
+    for (const [k, bytes] of Object.entries(r.byLetter)) {
+      freedByLetter[k] = (freedByLetter[k] ?? 0) + bytes;
+    }
     console.log(`  removidos ${r.removed}, falhas ${r.failed}, ${mb(r.freed)} MB`);
   };
 

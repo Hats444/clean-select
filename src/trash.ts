@@ -1,5 +1,5 @@
-import { appendFile, copyFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { appendFile, cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import type { TrashEntry } from "./types.ts";
 import { CS_HOME, LOG_FILE, TRASH_DIR, nowIso } from "./util.ts";
@@ -41,15 +41,22 @@ export async function toTrash(
   try {
     await mkdir(TRASH_DIR, { recursive: true });
     let size = 0;
-    try { size = (await stat(absPath)).size; } catch { /* pasta */ }
+    let isDir = false;
     try {
-      await rename(absPath, join(dest, basename(absPath)));
+      const st = await stat(absPath);
+      size = st.size;
+      isDir = st.isDirectory();
+    } catch { /* some na hora da cópia */ }
+    await mkdir(dest, { recursive: true });
+    const destPath = join(dest, basename(absPath));
+    try {
+      await rename(absPath, destPath);
     } catch {
-      // fallback cross-device (ex.: /sdcard FAT -> $HOME ext4)
-      await mkdir(dest, { recursive: true });
-      await copyFile(absPath, join(dest, basename(absPath)));
-      await unlink(absPath);
+      // fallback cross-device (ex.: /sdcard FAT -> $HOME ext4), funciona p/ pasta tb
+      await cp(absPath, destPath, { recursive: true });
+      await rm(absPath, { recursive: isDir, force: true });
     }
+    if (isDir) size = await dirSize(destPath);
     const m = await loadManifest();
     m.push({
       id, original: absPath, trashedAt: Date.now(), size,
@@ -77,8 +84,9 @@ export async function restore(idOrPath: string): Promise<boolean> {
     await rename(src, e.original);
   } catch {
     try {
-      await copyFile(src, e.original);
-      await rm(src, { force: true });
+      await mkdir(dirname(e.original), { recursive: true });
+      await cp(src, e.original, { recursive: true });
+      await rm(src, { recursive: true, force: true });
     } catch {
       return false;
     }
@@ -120,6 +128,21 @@ export async function purgeOldTrash(): Promise<number> {
 export async function trashSize(): Promise<number> {
   const m = await loadManifest();
   return m.reduce((a, e) => a + e.size, 0);
+}
+
+async function dirSize(dir: string): Promise<number> {
+  const { readdir } = await import("node:fs/promises");
+  let total = 0;
+  try {
+    for (const d of await readdir(dir, { withFileTypes: true })) {
+      const p = join(dir, d.name);
+      try {
+        if (d.isDirectory()) total += await dirSize(p);
+        else total += (await stat(p)).size;
+      } catch { /* ok */ }
+    }
+  } catch { /* ok */ }
+  return total;
 }
 
 export function shortHash(p: string): string {

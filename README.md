@@ -1,7 +1,10 @@
 # Clean Select
 
+![test](https://github.com/Hats444/clean-select/actions/workflows/test.yml/badge.svg)
+
 Limpador de arquivos inúteis, temporários, caches e duplicados para Android (Termux).
 TypeScript/Node.js **sem nenhuma dependência** — roda com type stripping nativo.
+Guia completo em [`COMO-USAR.md`](COMO-USAR.md).
 
 ## Instalação (no Termux)
 

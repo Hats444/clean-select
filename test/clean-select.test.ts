@@ -162,3 +162,16 @@ test("lixeira: toTrash + restore", async () => {
   assert.ok(await restore(id!));
   assert.equal(await readFile(p, "utf8"), "bye");
 });
+
+test("lixeira: funciona com pastas (A1 node_modules, pastas vazias)", async () => {
+  const { toTrash, restore, listTrash } = await import("../src/trash.ts");
+  const dir = join(root, "Download", "pasta_para_lixeira");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "arquivo.txt"), "conteudo");
+  const id = await toTrash(dir, {});
+  assert.ok(id, "toTrash de pasta devia funcionar");
+  const entry = (await listTrash()).find((e) => e.id === id);
+  assert.ok(entry && entry.size > 0, "tamanho da pasta no manifest");
+  assert.ok(await restore(id!));
+  assert.equal(await readFile(join(dir, "arquivo.txt"), "utf8"), "conteudo");
+});

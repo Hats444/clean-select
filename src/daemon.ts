@@ -114,10 +114,15 @@ export async function daemonLoop(
         const rd = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root });
 
         const freed = r.freed + rd.freed;
+        const freedByLetter: Record<string, number> = {};
+        for (const [k, bytes] of Object.entries(r.byLetter)) {
+          freedByLetter[k] = (freedByLetter[k] ?? 0) + bytes;
+        }
+        freedByLetter.M = (freedByLetter.M ?? 0) + rd.freed;
         await purgeOldTrash();
         await recordRun({
           date: new Date().toISOString(), profile: `daemon:${mode}`,
-          freedByLetter: {}, freedTotal: freed, durationMs: Date.now() - t0,
+          freedByLetter, freedTotal: freed, durationMs: Date.now() - t0,
         });
         lastRun = Date.now();
         // mede o efeito real no disco em vez de só somar o que mandou p/ lixeira

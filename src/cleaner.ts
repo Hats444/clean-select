@@ -85,7 +85,11 @@ export async function confirmPrompt(question: string): Promise<boolean> {
   return /^s(im)?$/i.test(a.trim());
 }
 
-export interface ApplyResult { removed: number; freed: number; failed: number }
+export interface ApplyResult {
+  removed: number; freed: number; failed: number;
+  /** MB liberada por letra de regra (só sucessos) */
+  byLetter: Record<string, number>;
+}
 
 /** Executa a remoção: tudo passa pela lixeira, com rechecagem por arquivo. */
 export async function applyFindings(findings: Finding[], opts: {
@@ -93,7 +97,7 @@ export async function applyFindings(findings: Finding[], opts: {
   cwds?: string[];
   root?: string;
 } = {}): Promise<ApplyResult> {
-  const res: ApplyResult = { removed: 0, freed: 0, failed: 0 };
+  const res: ApplyResult = { removed: 0, freed: 0, failed: 0, byLetter: {} };
   for (const f of findings) {
     if (opts.cwds && opts.root && underRunningProject(f.rel, opts.cwds, opts.root)) {
       await log(`skip (projeto rodando): ${f.rel}`);
@@ -101,8 +105,11 @@ export async function applyFindings(findings: Finding[], opts: {
     }
     if (!(await recheck(f))) { res.failed++; continue; }
     const id = await toTrash(f.path, opts.meta?.(f) ?? {});
-    if (id) { res.removed++; res.freed += f.size; }
-    else res.failed++;
+    if (id) {
+      res.removed++;
+      res.freed += f.size;
+      res.byLetter[f.letter] = (res.byLetter[f.letter] ?? 0) + f.size;
+    } else res.failed++;
   }
   return res;
 }
