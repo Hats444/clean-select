@@ -136,6 +136,18 @@ test("dedupe: nunca cruza contas 1016 x 1003", async () => {
   assert.equal(pic, undefined);
 });
 
+test("dedupe autoFull: réplicas saem de qualquer zona, protegido nunca sai", async () => {
+  const { files } = await collect(ctx());
+  const { groups } = await findDuplicates(files, {
+    priorities: rules.dedupePriority, autoZones: rules.dedupeAutoZones,
+    auto: true, autoFull: true, projectDirs: new Set(["proj"]),
+  });
+  const vid = groups.find((g) => g.size === VIDEO.length);
+  assert.ok(vid);
+  assert.equal(vid!.keep!.zone, "protected");
+  assert.deepEqual(vid!.remove.map((f) => f.rel).sort(), ["Download/video.mp4", "Telegram/video.mp4"]);
+});
+
 test("zona: android/media e accounts são protegidos", () => {
   assert.equal(zoneOf("android/media/x/y.jpg", new Set()), "protected");
   assert.equal(zoneOf("a/accounts/1016/media/b.jpg", new Set()), "protected");

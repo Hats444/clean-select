@@ -1,7 +1,8 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import type { Finding, Rules, ScanStats } from "./types.ts";
 import { CS_HOME, diskInfo, mb, nowIso, sizeFmt } from "./util.ts";
-import { cfg } from "./config.ts";
+import { cfg, reloadCfg } from "./config.ts";
+import { acquireLock } from "./cleaner.ts";
 import { emptyTrash, log, purgeOldTrash, trashSize } from "./trash.ts";
 import { applyFindings, runningCwds } from "./cleaner.ts";
 import { findDuplicates } from "./dedupe.ts";
@@ -69,8 +70,18 @@ export async function daemonLoop(
   hooks: DaemonHooks,
   opts: { checkMin?: number; runHours?: number } = {},
 ): Promise<void> {
-  const checkMs = (opts.checkMin ?? cfg.checkMin) * 60_000;
-  const runMs = (opts.runHours ?? cfg.runHours) * 3_600_000;
+  // guarda contra daemon duplo: se já tem um vivo, aborta
+  try {
+    const j = JSON.parse(await readFile(HEARTBEAT, "utf8"));
+    if (j.pid && j.pid !== process.pid) {
+      try { process.kill(j.pid, 0); console.error(`daemon já rodando (pid ${j.pid}). Use --status.`); process.exit(4); }
+      catch { /* pid morto, segue */ }
+    }
+  } catch { /* sem heartbeat */ }
+
+  // lidos por ciclo (o .env pode mudar a qualquer momento)
+  const checkMs = () => (opts.checkMin ?? cfg.checkMin) * 60_000;
+  const runMs = () => (opts.runHours ?? cfg.runHours) * 3_600_000;
   let lastRun = 0;
   let lastMode: DaemonMode = "diario";
   let lastFreed = 0;
@@ -95,7 +106,7 @@ export async function daemonLoop(
         cycles, freeMb: Math.round(f.mb), freePct: Number(f.pct.toFixed(1)),
         lastRun: lastRun ? new Date(lastRun).toISOString() : null,
         lastMode, lastFreedMb: Math.round(lastFreed / 1048576),
-        nextCheckAt: new Date(Date.now() + checkMs).toISOString(),
+        nextCheckAt: new Date(Date.now() + checkMs()).toISOString(),
         ...extra,
       }, null, 1));
     } catch { /* beat nunca derruba o daemon */ }
@@ -133,9 +144,10 @@ export async function daemonLoop(
 
   for (;;) {
     try {
+      reloadCfg(); // .env vale imediatamente, sem reiniciar o daemon
       const f0 = await free();
       const mode = modeFor(f0.pct);
-      const due = Date.now() - lastRun > runMs;
+      const due = Date.now() - lastRun > runMs();
       const shouldRun = mode !== "diario" || due;
       cycles++;
       lastMode = mode;
@@ -145,10 +157,20 @@ export async function daemonLoop(
       console.log(`  modo: ${mode.toUpperCase()}${due ? " (janela diária)" : shouldRun && mode !== "diario" ? " (espaço apertado)" : ""}`);
 
       if (!shouldRun) {
-        console.log(`  nada a fazer — próxima limpeza em ${Math.max(0, Math.round((runMs - (Date.now() - lastRun)) / 60000))}min ou se livre < ${cfg.freeTargetPct}%`);
+        console.log(`  nada a fazer — próxima limpeza em ${Math.max(0, Math.round((runMs() - (Date.now() - lastRun)) / 60000))}min ou se livre < ${cfg.freeTargetPct}%`);
         await beat({ idle: true });
       } else {
+        // lock só durante a limpeza: comandos manuais entram entre os ciclos
+        let release;
+        try {
+          release = await acquireLock();
+        } catch {
+          console.log("  outra execução segurando o lock — ciclo pulado");
+          await countdown(checkMs());
+          continue;
+        }
         const t0 = Date.now();
+        try {
         console.log(`  [1/4] varrendo ${root}...`);
         const { findings, dedupeCandidates, projectDirs, stats, scanMs } = await hooks.scan(mode);
         console.log(
@@ -182,6 +204,7 @@ export async function daemonLoop(
           priorities: rules.dedupePriority,
           autoZones: rules.dedupeAutoZones,
           auto: mode !== "emergencia",
+          autoFull: !!cfg.dedupeAutoFull,
           projectDirs,
           onProgress: (m) => console.log(`        ...${m}`),
         });
@@ -227,11 +250,14 @@ export async function daemonLoop(
         console.log(`        ciclo: ${r.removed + rd.removed} itens, ${mb(freed)} MB, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         await log(`ciclo ${mode}: ${r.removed + rd.removed} itens ${Math.round(freed / 1048576)}MB livre=${f1.pct.toFixed(1)}%`);
         await beat({ mode, freedMb: Math.round(freed / 1048576) });
+        } finally {
+          await release(); // solta o lock — idle deixa comandos manuais entrarem
+        }
       }
     } catch (e) {
       await log(`daemon erro: ${String(e)}`);
       console.error("  ciclo falhou (seguindo):", String(e));
     }
-    await countdown(checkMs);
+    await countdown(checkMs());
   }
 }

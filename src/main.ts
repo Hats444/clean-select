@@ -327,7 +327,8 @@ async function main(): Promise<void> {
     return;
   }
   if (v.daemon) {
-    const release2 = await acquireLock();
+    // o daemon trava por ciclo (lock só durante a limpeza) e se guarda
+    // contra instância dupla via pid do daemon.json — sem lock eterno
     try {
       const { daemonLoop } = await import("./daemon.ts");
       await daemonLoop(root, rules, {
@@ -358,7 +359,7 @@ async function main(): Promise<void> {
         runHours: v["a-cada"] ? Number(v["a-cada"]) : undefined,
       });
     } finally {
-      await release2();
+      await log("daemon encerrado");
     }
     return;
   }
@@ -474,6 +475,7 @@ async function main(): Promise<void> {
         priorities: rules.dedupePriority,
         autoZones: rules.dedupeAutoZones,
         auto: !!v.auto || !!perfil?.dupAuto,
+        autoFull: !!cfg.dedupeAutoFull,
         projectDirs,
         onProgress: (m) => console.log(m),
       });

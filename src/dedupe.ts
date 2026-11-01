@@ -137,6 +137,8 @@ export interface DupOptions {
   priorities: string[];
   autoZones: string[];   // globs das zonas seguras p/ --auto
   auto: boolean;         // --auto: só zonas seguras
+  /** auto total: qualquer cópia fora da zona protegida pode sair */
+  autoFull?: boolean;
   projectDirs: Set<string>;
   onProgress?: (msg: string) => void;
 }
@@ -154,7 +156,7 @@ export async function findDuplicates(files: FileEntry[], opts: DupOptions): Prom
     if (f.size < MIN_SIZE || f.size === 0) continue;
     const zone = zoneOf(f.rel, opts.projectDirs);
     if (zone === "excluded") continue;
-    if (opts.auto && zone !== "protected" && !matchAny(opts.autoZones, f.rel.toLowerCase())) continue;
+    if (opts.auto && !opts.autoFull && zone !== "protected" && !matchAny(opts.autoZones, f.rel.toLowerCase())) continue;
     cand.push({ ...f, zone, account: accountOf(f.rel) });
   }
 
