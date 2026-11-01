@@ -71,14 +71,24 @@ node src/main.ts --apply --alvo 8
 ## 5. Comandos úteis
 
 ```sh
+node src/main.ts --desfazer                                  # desfaz a limpeza INTEIRA da última run
+node src/main.ts --scan --interativo                         # marque números p/ mandar p/ lixeira
 node src/main.ts --explicar "Documents/hanork-beta/logs/app.log"  # por que pega / protege
-node src/main.ts --stats                                        # quanto já liberou, tendência
-node src/main.ts --diff-map                                     # pastas novas desde o último mapa
-node src/main.ts --empty-trash                                  # esvazia a lixeira de vez
-node src/main.ts --top 20                                       # mais itens no relatório
-node src/main.ts --only I,E                                     # só essas letras de regra
-node src/main.ts --skip J                                       # pula letras
+node src/main.ts --stats                                     # quanto já liberou, tendência
+node src/main.ts --diff-map                                  # pastas novas desde o último mapa
+node src/main.ts --empty-trash                               # esvazia a lixeira de vez
+node src/main.ts --top 20                                    # mais itens no relatório
+node src/main.ts --only I,E                                  # só essas letras de regra
+node src/main.ts --skip J                                    # pula letras
 ```
+
+O `--desfazer` restaura **todos** os itens que a execução mais recente mandou
+para a lixeira — útil quando uma categoria inteira saiu errada.
+No scan, a seção **L** agora mostra os maiores arquivos numerados
+(`--interativo` deixa você escolher quais vão pra lixeira) e o
+**tamanho por projeto** separando node_modules / cache / logs / backups.
+A letra **C** compara pastas-espelho por hash (`home/container/*` vs topo do
+hanork-beta) e oferece remover o espelho quando ele é 100% idêntico.
 
 ## 6. Automatizar — modo piloto automático (daemon)
 
@@ -105,7 +115,12 @@ O que o daemon faz sozinho — **escalonado pelo espaço livre**:
 - Dedupe: zonas seguras nos modos normal/reforço; todas as zonas na emergência.
 - Lixeira de 7 dias esvaziada automaticamente; tudo que sai é restaurável.
 - Mostra o espaço livre **real** medido no disco depois de cada ciclo.
-- Estado ao vivo em `~/.clean_select/daemon.json` — dá pra checar com `--stats`.
+- **Painel ao vivo**: cada ciclo mostra barra de espaço, achados por letra
+  (contagem + MB + top 3 arquivos), dedupe com top grupos, itens retidos
+  para confirmação manual, bots rodando, lixeira e espaço real antes/depois.
+  Entre ciclos, um countdown ao vivo marca a próxima verificação.
+- Estado completo em `~/.clean_select/daemon.json` — veja com `--status`
+  (pid, uptime, ciclos, modo, MB liberados, próximo check).
 
 Parar o daemon: `Ctrl+C` ou delete `~/.clean_select/lock`.
 

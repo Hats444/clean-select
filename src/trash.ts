@@ -34,7 +34,7 @@ async function saveManifest(m: TrashEntry[]): Promise<void> {
 /** Move arquivo/pasta para a lixeira. Retorna o id da entrada. */
 export async function toTrash(
   absPath: string,
-  meta: { hash?: string; keptOriginal?: string } = {},
+  meta: { hash?: string; keptOriginal?: string; run?: string } = {},
 ): Promise<string | null> {
   const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
   const dest = join(TRASH_DIR, id);
@@ -60,7 +60,7 @@ export async function toTrash(
     const m = await loadManifest();
     m.push({
       id, original: absPath, trashedAt: Date.now(), size,
-      hash: meta.hash, keptOriginal: meta.keptOriginal,
+      hash: meta.hash, keptOriginal: meta.keptOriginal, run: meta.run,
     });
     await saveManifest(m);
     await log(`trash ${absPath} -> ${id}`);
@@ -95,6 +95,24 @@ export async function restore(idOrPath: string): Promise<boolean> {
   try { await rm(join(TRASH_DIR, e.id), { recursive: true, force: true }); } catch { /* ok */ }
   await log(`restore ${e.original}`);
   return true;
+}
+
+/** Restaura todos os itens movidos numa execução específica. */
+export async function restoreRun(runId: string): Promise<{ ok: number; fail: number }> {
+  const m = await loadManifest();
+  const targets = m.filter((e) => e.run === runId);
+  let ok = 0, fail = 0;
+  for (const e of targets) {
+    (await restore(e.id)) ? ok++ : fail++;
+  }
+  return { ok, fail };
+}
+
+/** Id da execução mais recente que ainda tem itens na lixeira. */
+export async function lastRunId(): Promise<string | null> {
+  const m = await loadManifest();
+  const withRun = m.filter((e) => e.run);
+  return withRun.length ? withRun[withRun.length - 1].run! : null;
 }
 
 export async function emptyTrash(): Promise<number> {

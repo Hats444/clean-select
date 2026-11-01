@@ -14,12 +14,14 @@ import {
   acquireLock, applyFindings, checkFuses, confirmPrompt, FuseError, runningCwds,
 } from "./cleaner.ts";
 import { findDuplicates } from "./dedupe.ts";
-import { emptyTrash, listTrash, log, purgeOldTrash, restore, trashSize } from "./trash.ts";
+import { emptyTrash, lastRunId, listTrash, log, purgeOldTrash, restore, restoreRun, toTrash, trashSize } from "./trash.ts";
+import { createInterface } from "node:readline/promises";
+import { MIRROR_PAIRS, compareDirs, mirrorLine, overlapReport, projectSizes } from "./mirrors.ts";
 import { LETTER_NAMES, printDupReport, printFindings, scanSummary } from "./report.ts";
 import { loadHistory, recordRun, statsReport, growthAlerts } from "./stats.ts";
 import { diffMap, loadSizes, refreshMap } from "./map.ts";
 import { remoteLoop } from "./remote.ts";
-import { matchAny, mb, normRel } from "./util.ts";
+import { CS_HOME, matchAny, mb, normRel } from "./util.ts";
 
 const exec = promisify(execFile);
 const BASE = join(import.meta.dirname, "..");
@@ -44,6 +46,8 @@ const { values: v } = parseArgs({
     doctor: { type: "boolean" }, "instalar-agenda": { type: "boolean" },
     "confirmo-grande": { type: "boolean" }, top: { type: "string" }, remote: { type: "boolean" },
     daemon: { type: "boolean" }, intervalo: { type: "string" }, "a-cada": { type: "string" },
+    status: { type: "boolean" },
+    desfazer: { type: "boolean" }, interativo: { type: "boolean" },
     help: { type: "boolean" },
   },
 });
@@ -155,7 +159,7 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
 
 /* =================== aplicação =================== */
 
-async function applyAll(findings: Finding[], root: string, rules: Rules, totalFiles: number): Promise<void> {
+async function applyAll(findings: Finding[], root: string, rules: Rules, totalFiles: number, runId: string): Promise<void> {
   checkFuses(findings.filter((f) => f.level !== "relatorio"), totalFiles, rules.limits, !!v["confirmo-grande"]);
   const auto = findings.filter((f) => f.level === "auto" && f.letter !== "K");
   const conf = findings.filter((f) => f.level === "confirmar");
@@ -172,7 +176,7 @@ async function applyAll(findings: Finding[], root: string, rules: Rules, totalFi
   let freedTotal = 0;
   const freedByLetter: Record<string, number> = {};
   const doApply = async (list: Finding[]) => {
-    const r = await applyFindings(list, { cwds, root });
+    const r = await applyFindings(list, { cwds, root, runId });
     freedTotal += r.freed;
     for (const [k, bytes] of Object.entries(r.byLetter)) {
       freedByLetter[k] = (freedByLetter[k] ?? 0) + bytes;
@@ -262,6 +266,18 @@ async function main(): Promise<void> {
   if (v.help) { console.log(HELP); return; }
   if (v.doctor) return doctor(root);
   if (v.stats) return void console.log(await statsReport());
+  if (v.status) {
+    try {
+      const j = JSON.parse(await readFile(join(CS_HOME, "daemon.json"), "utf8"));
+      console.log("== daemon (heartbeat) ==");
+      for (const [k, val] of Object.entries(j)) console.log(`  ${k.padEnd(14)} ${val}`);
+      const age = Date.now() - new Date(j.at).getTime();
+      console.log(age < 5 * 60_000 ? "\ndaemon VIVO (heartbeat <5min)" : `\ndaemon possivelmente morto (heartbeat há ${Math.round(age / 60000)}min)`);
+    } catch {
+      console.log("daemon nunca rodou neste HOME (sem daemon.json).");
+    }
+    return;
+  }
   if (v["refresh-map"]) { await refreshMap(root); console.log("mapa regenerado em reference/."); return; }
   if (v["diff-map"]) {
     const novos = await diffMap(root);
@@ -275,6 +291,13 @@ async function main(): Promise<void> {
     return;
   }
   if (v["empty-trash"]) { console.log(`lixeira esvaziada: ${mb(await emptyTrash())} MB`); return; }
+  if (v.desfazer) {
+    const runId = await lastRunId();
+    if (!runId) { console.log("nenhuma execução com itens na lixeira."); return; }
+    const r = await restoreRun(runId);
+    console.log(`desfeito: ${r.ok} itens restaurados${r.fail ? `, ${r.fail} falhas` : ""} (run ${runId})`);
+    return;
+  }
   if (v.ignore !== undefined || v.unignore !== undefined) return editIgnore(v.ignore as string, v.unignore as string);
   if (v["instalar-agenda"]) {
     const home = process.env.HOME ?? "";
@@ -328,7 +351,8 @@ async function main(): Promise<void> {
             findings: r.findings,
             dedupeCandidates: r.dedupeCandidates,
             projectDirs: r.projectDirs,
-            totalFiles: r.stats.files,
+            stats: r.stats,
+            scanMs: r.ms,
           };
         },
       }, {
@@ -391,13 +415,48 @@ async function main(): Promise<void> {
     const { stats, findings, dedupeCandidates, topFiles, projectDirs, dirSizes, ms } = await runScan(root, ctx, rules);
     console.log(scanSummary(stats, ms));
 
-    // L: top maiores arquivos
+    // L: top maiores arquivos + tamanho por projeto
     const topN = Number(v.top ?? 10);
     if (topFiles.length) {
+      const list = topFiles.slice(0, Math.max(topN, 50));
       console.log(`\n== L — maiores arquivos (50MB+) ==`);
-      for (const f of topFiles.slice(0, Math.max(topN, 50))) {
-        console.log(`  ${mb(f.size).padStart(9)} MB  ${f.rel}`);
+      list.forEach((f, i) => {
+        console.log(`  ${String(i + 1).padStart(3)}  ${mb(f.size).padStart(9)} MB  ${f.rel}`);
+      });
+      if (v.interativo && process.stdin.isTTY) {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const ans = await rl.question("\nnúmeros p/ lixeira (ex.: 1 4 7) ou Enter p/ pular: ");
+        rl.close();
+        const picks = ans.split(/[ ,]+/).map(Number).filter((n) => n >= 1 && n <= list.length);
+        const runId = `manual-${Date.now().toString(36)}`;
+        for (const n of picks) {
+          const f = list[n - 1];
+          if (protectedReason(f.rel)) { console.log(`  ${f.rel}: protegido, ignorado`); continue; }
+          const id = await toTrash(f.path, { run: runId });
+          console.log(id ? `  -> lixeira ${id}` : `  falhou ${f.rel}`);
+        }
       }
+    }
+    const projRows = projectSizes(dirSizes, topN);
+    if (projRows.length) console.log(`\n== L — tamanho por projeto ==\n${projRows.join("\n")}`);
+
+    // C: espelhos de pasta comparados por hash
+    if (!ctx.only || ctx.only.has("C")) {
+      const mirrorFindings: Finding[] = [];
+      for (const [a, b] of MIRROR_PAIRS) {
+        const r = await compareDirs(root, a, b);
+        if (!r) continue;
+        console.log(`== C ==  ${mirrorLine(r)}`);
+        if (r.safeToRemove) {
+          mirrorFindings.push({
+            path: join(root, b), rel: b, size: 0, mtimeMs: 0,
+            ruleId: "C", letter: "C", level: "confirmar", note: `espelho idêntico de ${a}`,
+          });
+        }
+      }
+      const ov = await overlapReport(root, "download/received from pc/hanork", "download/hanork-beta");
+      if (ov) console.log(`== C ==  ${ov}`);
+      findings.push(...mirrorFindings);
     }
 
     const actionable = findings.filter((f) => f.level !== "relatorio");
@@ -405,6 +464,8 @@ async function main(): Promise<void> {
     console.log(printFindings(findings, topN));
     console.log(`\ntotal sugerido: ${actionable.length} itens, ${mb(actionable.reduce((a, f) => a + f.size, 0))} MB` +
       ` | relatório-only: ${reportOnly.length}`);
+
+    const runId = `run-${Date.now().toString(36)}`;
 
     // M: dedupe
     if (v.dup || v.auto || PROFILES[String(v.perfil ?? "")]?.dupAuto) {
@@ -431,7 +492,7 @@ async function main(): Promise<void> {
         }
         if (v.auto || (await confirmPrompt(`remover ${dupFindings.length} duplicados (ver top-20 acima)?`))) {
           const cwds = await runningCwds();
-          const r = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root });
+          const r = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root, runId });
           console.log(`dedupe: ${r.removed} removidos, ${mb(r.freed)} MB liberados.`);
         }
       }
@@ -449,7 +510,7 @@ async function main(): Promise<void> {
       console.log("\ndry-run. Use --apply para executar (pede confirmação por categoria).");
       return;
     }
-    await applyAll(actionable, root, rules, stats.files);
+    await applyAll(actionable, root, rules, stats.files, runId);
     try {
       const after = await statfs(root);
       console.log(`espaço livre agora: ${mb(after.bavail * after.bsize)} MB`);
@@ -479,11 +540,13 @@ uso: node src/main.ts [--scan] [--apply] [flags]
   --root <pasta>                                raiz alternativa (testes)
   --age <dias>                                  idade mínima (default 3)
   --alvo <GB>                                   parar ao atingir N GB livres
-  --restore <id>  --empty-trash                 lixeira
+  --restore <id>  --empty-trash  --desfazer     lixeira (desfazer = run inteira)
+  --interativo                                  escolher maiores arquivos p/ lixeira
   --refresh-map  --diff-map                     mapa de pastas (reference/)
   --ignore <glob>  --unignore <glob>  --explicar <caminho>
   --stats  --doctor  --instalar-agenda  --remote
   --daemon [--intervalo <min>] [--a-cada <h>]   piloto automático contínuo
+  --status                                      heartbeat do daemon (ao vivo)
   --confirmo-grande                             libera limpeza >5GB/>20%
   --top <n>                                     quantos itens por categoria
 `;

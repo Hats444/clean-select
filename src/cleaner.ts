@@ -96,6 +96,7 @@ export async function applyFindings(findings: Finding[], opts: {
   meta?: (f: Finding) => { hash?: string; keptOriginal?: string };
   cwds?: string[];
   root?: string;
+  runId?: string;
 } = {}): Promise<ApplyResult> {
   const res: ApplyResult = { removed: 0, freed: 0, failed: 0, byLetter: {} };
   for (const f of findings) {
@@ -104,7 +105,7 @@ export async function applyFindings(findings: Finding[], opts: {
       continue;
     }
     if (!(await recheck(f))) { res.failed++; continue; }
-    const id = await toTrash(f.path, opts.meta?.(f) ?? {});
+    const id = await toTrash(f.path, { ...opts.meta?.(f), run: opts.runId });
     if (id) {
       res.removed++;
       res.freed += f.size;

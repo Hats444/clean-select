@@ -60,4 +60,6 @@ export interface TrashEntry {
   size: number;
   hash?: string;
   keptOriginal?: string;
+  /** id da execução que moveu o item (permite --desfazer a run inteira) */
+  run?: string;
 }
