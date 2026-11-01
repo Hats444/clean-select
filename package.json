@@ -1,0 +1,35 @@
+{
+  "name": "clean-select",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Limpador definitivo de arquivos inuteis, temporarios, caches e duplicados para Android (Termux). TypeScript/Node.js sem nenhuma dependencia, com lixeira, dedupe por hash e modo daemon.",
+  "license": "UNLICENSED",
+  "author": {
+    "name": "Hats444",
+    "url": "https://github.com/Hats444"
+  },
+  "contributors": [
+    {
+      "name": "Hats444",
+      "url": "https://github.com/Hats444"
+    },
+    {
+      "name": "Devin (agente de IA da Cognition)",
+      "url": "https://devin.ai"
+    }
+  ],
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "scan": "node src/main.ts --scan",
+    "doctor": "node src/main.ts --doctor",
+    "diario": "node src/main.ts --perfil diario",
+    "semanal": "node src/main.ts --perfil semanal",
+    "profundo": "node src/main.ts --perfil profundo --agressivo",
+    "dup": "node src/main.ts --dup",
+    "daemon": "node src/main.ts --daemon",
+    "stats": "node src/main.ts --stats",
+    "test": "node --test test/"
+  }
+}

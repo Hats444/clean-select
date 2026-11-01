@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "limits": { "maxBytes": 5368709120, "maxPercent": 20 },
+  "dedupePriority": [
+    "dcim/camera/**",
+    "{pictures,movies,music}/**",
+    "documents/**",
+    "download/**",
+    "{download/telegram,telegram,ymusic}/**",
+    "**"
+  ],
+  "dedupeAutoZones": [
+    "download/**",
+    "pictures/screenshots/**",
+    "**/telegram/**",
+    "ymusic/**",
+    "**/backups/apps/**"
+  ],
+  "backupDirs": [
+    "**/backup/**", "**/backups/**", "**/.audit/**", "**/osint/reports/**", "**/api/export/**"
+  ],
+  "whatsappMedia": {
+    "legacy": ["android/media/com.whatsapp/whatsapp/media", "whatsapp/media"],
+    "accountMedia": ["android/media/com.whatsapp/whatsapp/accounts/*/media"]
+  },
+  "rules": [
+    {
+      "id": "A2", "letter": "A", "level": "auto",
+      "description": "poda de node_modules (--prune-modules)",
+      "patterns": [
+        "**/node_modules/**/{test,tests,__tests__,spec,fixtures,benchmark,benchmarks,example,examples,docs,doc,docsify,.github,.husky,.claude,deno,golang,php,python}/**",
+        "**/node_modules/**/*.map",
+        "**/node_modules/**/*.md",
+        "**/node_modules/**/CHANGELOG*",
+        "**/node_modules/**/.eslintrc*",
+        "**/node_modules/**/.travis.yml",
+        "**/node_modules/**/.npmignore",
+        "**/node_modules/**/tsconfig*.json",
+        "**/node_modules/typescript/lib/{cs,de,es,fr,it,ja,ko,pl,pt-br,ru,tr,zh-cn,zh-tw}/**",
+        "**/node_modules/luxon/build/{amd,global,cjs-browser}/**"
+      ],
+      "exclude": ["**/LICENSE*"]
+    },
+    {
+      "id": "A3", "letter": "A", "level": "auto",
+      "description": "binários de outra plataforma em node_modules",
+      "patterns": [
+        "**/node_modules/**/*win32*/**",
+        "**/node_modules/**/*darwin*/**",
+        "**/node_modules/**/*freebsd*/**",
+        "**/node_modules/**/*linux-x64*/**",
+        "**/node_modules/**/*musl*/**",
+        "**/node_modules/**/*linux-arm*/**"
+      ],
+      "exclude": ["**/*arm64*", "**/node_modules/**/android*/**"]
+    },
+    {
+      "id": "A5", "letter": "A", "level": "auto", "minAgeDays": 1,
+      "description": "caches npm/vite/jiti/vitest",
+      "patterns": [
+        "**/.npm/_cacache/**", "**/.npm/_logs/**",
+        "**/node_modules/.cache/**", "**/.vite/**", "**/.cache/jiti/**",
+        "**/.vitest/**", "**/.eslintcache", "**/*.tsbuildinfo",
+        "**/coverage/**", "**/.nyc_output/**"
+      ]
+    },
+    {
+      "id": "A6", "letter": "A", "level": "confirmar", "minAgeDays": 1,
+      "description": "build regenerável dist/",
+      "patterns": ["**/dist/**"]
+    },
+    {
+      "id": "A7", "letter": "A", "level": "auto",
+      "description": "headers/docs do node-linux do basebot (mantém bin e lib)",
+      "patterns": [
+        "documents/basebot/.node-linux/include/**",
+        "documents/basebot/.node-linux/share/doc/**",
+        "documents/basebot/.node-linux/share/man/**"
+      ]
+    },
+    {
+      "id": "A8", "letter": "A", "level": "auto",
+      "patterns": ["**/PaxHeaders.*", "**/PaxHeaders.*/*"]
+    },
+    {
+      "id": "A9", "letter": "A", "level": "confirmar", "minAgeDays": 0.05,
+      "description": "lixo dentro de .git (locks e tmp_pack)",
+      "patterns": ["**/.git/**/*.lock", "**/.git/**/tmp_pack_*"]
+    },
+    {
+      "id": "D", "letter": "D", "level": "auto", "minAgeDays": 1,
+      "description": "temporários de bots (só o conteúdo, mantém a pasta)",
+      "patterns": [
+        "documents/zerotwo-beta/{temp,temp_audio,database/data/tmp,database/data/edit-videos,database/data/media/audios/shazam,database/data/media/audios/totext,database/data/media/poll,javascript/sticker/rename/tmp}/**",
+        "documents/tdmclient/temp/**",
+        "**/hanork-beta/data/cache/**",
+        "**/{tmp,temp}/**"
+      ],
+      "exclude": ["**/node_modules/**"]
+    },
+    {
+      "id": "D.lixo", "letter": "D", "level": "confirmar", "minAgeDays": 1,
+      "patterns": ["download/duda_bot4.1/lixo/**"]
+    },
+    {
+      "id": "E", "letter": "E", "level": "auto", "minAgeDays": 7,
+      "description": "logs (mantém os últimos 7 dias)",
+      "patterns": [
+        "**/*.log", "**/*.trace", "**/*.hprof", "**/*.dmp", "**/*.stackdump",
+        "documents/logs/**", "**/hanork-beta/logs/**"
+      ]
+    },
+    {
+      "id": "F1", "letter": "F", "level": "auto", "minAgeDays": 1,
+      "description": "caches/lixo interno do WhatsApp e WhatsApp Business",
+      "patterns": [
+        "**/{.shared,.thumbs,.stickerthumbs,.trash,.links,.wamocache,.uddhfy8k4eqg}/**",
+        "**/*ai editor cache/**",
+        "**/*bug report attachments/**"
+      ]
+    },
+    {
+      "id": "F1.statuses", "letter": "F", "level": "auto", "minAgeDays": 7,
+      "patterns": ["**/whatsapp*/**/.statuses/**"]
+    },
+    {
+      "id": "F2", "letter": "F", "level": "confirmar", "minAgeDays": 1,
+      "patterns": ["**/.draft_ads_media/**"]
+    },
+    {
+      "id": "F3", "letter": "F", "level": "confirmar", "aggressive": true, "minAgeDays": 90,
+      "description": "[AGR] mídia recebida antiga (Private) e voice/video notes",
+      "patterns": [
+        "**/whatsapp*/**/private/**",
+        "**/*animated gifs/**",
+        "**/*video notes/**",
+        "**/*voice notes/[0-9][0-9][0-9][0-9][0-9][0-9]/**"
+      ]
+    },
+    {
+      "id": "G.thumbs", "letter": "G", "level": "auto", "minAgeDays": 1,
+      "patterns": ["**/.thumbnails/**", "**/.thumbcache/**", "**/.thumbnails", "**/.thumbcache"]
+    },
+    {
+      "id": "G.shots", "letter": "G", "level": "confirmar", "aggressive": true, "minAgeDays": 90,
+      "description": "[AGR] gravações de tela e screenshots antigas",
+      "patterns": [
+        "movies/screenrecord/**",
+        "pictures/screenshots/**"
+      ]
+    },
+    {
+      "id": "H", "letter": "H", "level": "auto", "minAgeDays": 1,
+      "patterns": [
+        "mt2/.recycle/**", "**/blockcanary/**", "**/lazylist/**",
+        "**/lost.dir/**", "**/.trash*/**", "**/.recycle/**", "**/.trashed/**",
+        "zarchiver/.temp/**",
+        "android/data/*/cache/**"
+      ]
+    },
+    {
+      "id": "H.ads", "letter": "H", "level": "confirmar", "minAgeDays": 7,
+      "patterns": [
+        "pictures/.gs/**", "pictures/.gs_fs0/**",
+        "ymusic/.data/.app_conversion_data/**", "ymusic/.data/.app_muxing_data/**"
+      ]
+    },
+    {
+      "id": "H.termux", "letter": "H", "level": "auto", "minAgeDays": 1,
+      "description": "caches do próprio Termux (precisa --termux)",
+      "patterns": ["**/__pycache__/**"]
+    },
+    {
+      "id": "I", "letter": "I", "level": "auto", "minAgeDays": 1,
+      "description": "extensões descartáveis em qualquer lugar",
+      "patterns": [
+        "**/*.{tmp,temp,cache,swp,swo,part,partial,crdownload,download,opdownload,aria2,!ut,bc!,filepart,bak,old,orig,rej}",
+        "**/*~",
+        "**/{thumbs.db,desktop.ini,.ds_store}",
+        "**/._*",
+        "**/{crash_*,anr_*,tombstone_*}",
+        "**/bugreport-*.zip"
+      ],
+      "exclude": ["**/node_modules/**"]
+    },
+    {
+      "id": "J.apk", "letter": "J", "level": "confirmar", "minAgeDays": 30,
+      "description": "APKs e pacotes com 30+ dias",
+      "patterns": ["**/*.{apk,xapk,apkm,apks}"],
+      "exclude": ["**/backups/apps/**"]
+    },
+    {
+      "id": "K", "letter": "K", "level": "confirmar",
+      "description": "dados de usuários de teste (nunca auto)",
+      "patterns": [
+        "**/data/users/{demo_*,intent-smoke-test,smoke_prefix_*,test_user_*}/**"
+      ]
+    },
+    {
+      "id": "L", "letter": "L", "level": "relatorio",
+      "description": "só relatório: pastas desconhecidas e recebidas do PC",
+      "patterns": [
+        "download/received from pc/**",
+        "download/.ready_for/**",
+        "**/hanork-beta/hanork/**",
+        "{darkdados,arquivo,call,call of futi,saved searches}/**",
+        "documents/{z,oi,bot,exemplosite,leitor de pdf}/**",
+        "documents/basebot/{.node,data,mm,test}/**"
+      ]
+    }
+  ]
+}
