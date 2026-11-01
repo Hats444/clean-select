@@ -6,6 +6,8 @@ import { CS_HOME, LOG_FILE, TRASH_DIR, nowIso } from "./util.ts";
 import { cfg } from "./config.ts";
 
 const MANIFEST = join(TRASH_DIR, "manifest.json");
+/** motivos de erro já mostrados no console nesta vida do processo */
+const ERR_SEEN = new Set<string>();
 const RETENTION_MS = cfg.trashDays * 86_400_000;
 
 export async function log(msg: string): Promise<void> {
@@ -81,7 +83,7 @@ export async function toTrashBatch(
   if (!items.length) return ids;
   await mkdir(TRASH_DIR, { recursive: true });
   const m = await loadManifest();
-  const errSeen = new Set<string>();
+  const errCount = new Map<string, number>();
   for (const it of items) {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const dest = join(TRASH_DIR, id);
@@ -105,15 +107,19 @@ export async function toTrashBatch(
       m.push({ id, original: it.path, trashedAt: Date.now(), size, hash: it.meta?.hash, keptOriginal: it.meta?.keptOriginal, run: runId });
       ids.set(it.path, id);
     } catch (err) {
-      // loga cada tipo de erro uma vez (ex.: EACCES no Android/media)
       const reason = String((err as NodeJS.ErrnoException)?.code ?? err);
-      if (!errSeen.has(reason)) {
-        errSeen.add(reason);
+      errCount.set(reason, (errCount.get(reason) ?? 0) + 1);
+      // console só na 1a vez que esse motivo aparece NA VIDA do processo
+      if (!ERR_SEEN.has(reason)) {
+        ERR_SEEN.add(reason);
         await log(`trash batch falha (${reason}): ${it.path}`);
-        console.log(`        lixeira falhou [${reason}]: ${it.path.slice(0, 70)}`);
+        console.log(`        lixeira falhou [${reason}]: ${it.path.slice(0, 70)}` +
+          (reason === "EACCES" || reason === "EPERM"
+            ? "  <- Android 11+ bloqueia escrita nesse caminho pelo Termux" : ""));
       }
     }
   }
+  for (const [r2, n] of errCount) await log(`trash batch falha ${r2}: ${n} itens`);
   await saveManifest(m);
   await log(`trash batch: ${ids.size}/${items.length} itens, ${items.length - ids.size} falhas`);
   return ids;
