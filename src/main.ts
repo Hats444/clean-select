@@ -109,7 +109,7 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
       const parent = dirname(e.rel).replace(/\\/g, "/");
       dirSizes.set(parent, (dirSizes.get(parent) ?? 0) + e.size);
       info.filesIn.add(parent);
-      if (++seen % 20000 === 0) console.log(`  …${seen} arquivos`);
+      if (++seen % 20000 === 0) console.log(`  ...${seen} arquivos`);
       if (base === "package.json" || base === "tsconfig.json" || base === "requirements.txt") {
         pkgJsonDirs.add(parent);
         projectDirs.add(parent);

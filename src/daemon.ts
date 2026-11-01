@@ -44,11 +44,6 @@ const NAMES: Record<string, string> = {
   L: "relatório", M: "duplicados",
 };
 
-function bar(pct: number, width = 20): string {
-  const n = Math.round((pct / 100) * width);
-  return "█".repeat(n).padEnd(width, "░");
-}
-
 function grouped(findings: Finding[]): Map<string, Finding[]> {
   const m = new Map<string, Finding[]>();
   for (const f of findings) {
@@ -119,11 +114,11 @@ export async function daemonLoop(
         if (++tick % 10 === 1) {
           void free().then((f) => {
             process.stdout.write(
-              `\r  📱 ${sizeFmt(f.mb * 1048576)} livre (${f.pct.toFixed(1)}%) | próxima verificação em ${m}m${String(s).padStart(2, "0")}s   `,
+              `\r  ${sizeFmt(f.mb * 1048576)} livre (${f.pct.toFixed(1)}%) | proxima verificacao em ${m}m${String(s).padStart(2, "0")}s   `,
             );
           }).catch(() => undefined);
         } else {
-          process.stdout.write(`\r  📱 — | próxima verificação em ${m}m${String(s).padStart(2, "0")}s   `);
+          process.stdout.write(`\r  proxima verificacao em ${m}m${String(s).padStart(2, "0")}s   `);
         }
         if (left <= 0) { clearInterval(t); process.stdout.write("\r" + " ".repeat(60) + "\r"); resolve(); }
       }, 1000);
@@ -131,11 +126,10 @@ export async function daemonLoop(
     });
 
   await log(`daemon up: root=${root} check=${opts.checkMin ?? 30}min run=${opts.runHours ?? 24}h`);
-  console.log(`┌─ clean-select daemon ─ ${nowIso()}`);
-  console.log(`│ root: ${root}`);
-  console.log(`│ verifica: ${opts.checkMin ?? cfg.checkMin}min | limpeza: ${opts.runHours ?? cfg.runHours}h | meta livre ≥${cfg.freeTargetPct}% | emergência <${cfg.freeEmergencyPct}%`);
-  console.log(`│ parar: Ctrl+C ou rm ~/.clean_select/lock | heartbeat: ${HEARTBEAT}`);
-  console.log(`└${"─".repeat(60)}`);
+  console.log(`clean-select daemon — ${nowIso()}`);
+  console.log(`root: ${root}`);
+  console.log(`verifica: ${opts.checkMin ?? cfg.checkMin}min | limpeza: ${opts.runHours ?? cfg.runHours}h | meta livre >=${cfg.freeTargetPct}% | emergencia <${cfg.freeEmergencyPct}%`);
+  console.log(`parar: Ctrl+C ou rm ~/.clean_select/lock | heartbeat: ${HEARTBEAT}`);
 
   for (;;) {
     try {
@@ -146,8 +140,8 @@ export async function daemonLoop(
       cycles++;
       lastMode = mode;
 
-      console.log(`\n══ ciclo #${cycles} — ${nowIso()} ══`);
-      console.log(`  espaço: ${bar(f0.pct)} ${f0.pct.toFixed(1)}% livre (${sizeFmt(f0.mb * 1048576)} de ${sizeFmt(f0.total * 1048576)}) [${f0.source}]`);
+      console.log(`\nciclo #${cycles} — ${nowIso()}`);
+      console.log(`  espaco: ${f0.pct.toFixed(1)}% livre (${sizeFmt(f0.mb * 1048576)} de ${sizeFmt(f0.total * 1048576)}) [${f0.source}]`);
       console.log(`  modo: ${mode.toUpperCase()}${due ? " (janela diária)" : shouldRun && mode !== "diario" ? " (espaço apertado)" : ""}`);
 
       if (!shouldRun) {
@@ -155,7 +149,7 @@ export async function daemonLoop(
         await beat({ idle: true });
       } else {
         const t0 = Date.now();
-        console.log(`  [1/4] varrendo ${root}…`);
+        console.log(`  [1/4] varrendo ${root}...`);
         const { findings, dedupeCandidates, projectDirs, stats, scanMs } = await hooks.scan(mode);
         console.log(
           `        ${stats.files} arquivos / ${stats.dirs} pastas (${mb(stats.bytes)} MB) em ${(scanMs / 1000).toFixed(1)}s — ${stats.ignored} ignorados`,
@@ -164,12 +158,12 @@ export async function daemonLoop(
         const auto = findings.filter((x) => allowedInMode(x, mode));
         const skipped = findings.filter((x) => !allowedInMode(x, mode));
 
-        console.log(`  [2/4] classificados: ${findings.length} achados → ${auto.length} aplicáveis, ${skipped.length} fora do modo`);
+        console.log(`  [2/4] classificados: ${findings.length} achados -> ${auto.length} aplicáveis, ${skipped.length} fora do modo`);
         for (const [L, arr] of [...grouped(auto).entries()].sort()) {
           const bytes = arr.reduce((a, x) => a + x.size, 0);
           console.log(`        ${L} ${(NAMES[L] ?? "").padEnd(18)} ${String(arr.length).padStart(5)} itens  ${asciiBar(bytes, Math.max(1, ...[...grouped(auto).values()].map((g) => g.reduce((a, x) => a + x.size, 0))), 15)} ${mb(bytes)} MB`);
           for (const x of [...arr].sort((a, b) => b.size - a.size).slice(0, 3)) {
-            console.log(`           └ ${mb(x.size).padStart(8)} MB  ${x.rel.slice(0, 70)}`);
+            console.log(`             ${mb(x.size).padStart(8)} MB  ${x.rel.slice(0, 70)}`);
           }
         }
         if (skipped.length) {
@@ -180,7 +174,7 @@ export async function daemonLoop(
         const cwds = await runningCwds();
         if (cwds.length) console.log(`        bots ativos (cwd): ${cwds.join(", ")} — projetos pulados`);
 
-        console.log(`  [3/4] movendo p/ lixeira…`);
+        console.log(`  [3/4] movendo p/ lixeira...`);
         const r = await applyFindings(auto, { cwds, root });
         console.log(`        regras: ${r.removed} movidos, ${r.failed} falhas, ${mb(r.freed)} MB`);
 
@@ -189,7 +183,7 @@ export async function daemonLoop(
           autoZones: rules.dedupeAutoZones,
           auto: mode !== "emergencia",
           projectDirs,
-          onProgress: (m) => console.log(`        …${m}`),
+          onProgress: (m) => console.log(`        ...${m}`),
         });
         const dupFindings: Finding[] = [];
         const meta = new Map<string, { hash: string; keptOriginal: string }>();
@@ -200,9 +194,9 @@ export async function daemonLoop(
           }
         }
         const dupMb = dupFindings.reduce((a, x) => a + x.size, 0);
-        console.log(`        dedupe: ${groups.length} grupos → ${dupFindings.length} cópias, ${mb(dupMb)} MB`);
+        console.log(`        dedupe: ${groups.length} grupos -> ${dupFindings.length} cópias, ${mb(dupMb)} MB`);
         for (const g of groups.filter((g) => g.remove.length).slice(0, 3)) {
-          console.log(`           └ ${mb(g.size)} MB x${g.files.length} — mantém ${g.keep!.rel.slice(0, 55)}`);
+          console.log(`             ${mb(g.size)} MB x${g.files.length} — mantém ${g.keep!.rel.slice(0, 55)}`);
         }
         const rd = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root });
 
@@ -229,7 +223,7 @@ export async function daemonLoop(
         const f1 = await free();
         console.log(`  [4/4] resultado:`);
         console.log(`        lixeira: ${mb(trashedAfter)} MB${trashedBefore !== trashedAfter ? ` (liberou ${mb(Math.max(0, trashedBefore - trashedAfter))} MB)` : ""}`);
-        console.log(`        espaço:  ${bar(f1.pct)} ${f1.pct.toFixed(1)}%  (${f1.mb > f0.mb ? "+" : ""}${sizeFmt(Math.abs(f1.mb - f0.mb) * 1048576)} real)`);
+        console.log(`        espaco:  ${f1.pct.toFixed(1)}% livre  (${f1.mb > f0.mb ? "+" : "-"}${sizeFmt(Math.abs(f1.mb - f0.mb) * 1048576)} real)`);
         console.log(`        ciclo: ${r.removed + rd.removed} itens, ${mb(freed)} MB, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         await log(`ciclo ${mode}: ${r.removed + rd.removed} itens ${Math.round(freed / 1048576)}MB livre=${f1.pct.toFixed(1)}%`);
         await beat({ mode, freedMb: Math.round(freed / 1048576) });
