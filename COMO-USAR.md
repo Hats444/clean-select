@@ -90,6 +90,25 @@ No scan, a seção **L** agora mostra os maiores arquivos numerados
 A letra **C** compara pastas-espelho por hash (`home/container/*` vs topo do
 hanork-beta) e oferece remover o espelho quando ele é 100% idêntico.
 
+## 5.5 Situação crítica (pouco espaço de verdade)
+
+Se o celular está quase cheio (ex.: **1 GB livre de 256 GB**):
+
+```sh
+# 1) faxina manual pesada, uma vez (vê tudo e confirma por categoria)
+node src/main.ts --perfil profundo --agressivo --apply
+
+# 2) depois deixa o daemon trabalhar — ele fica em emergência e
+#    limpa TODO ciclo até o livre chegar na meta (CS_FREE_TARGET_PCT)
+node src/main.ts --daemon
+```
+
+**Detalhe importante**: mover para a lixeira **não libera espaço** — fica
+no mesmo disco. Por isso, em modo `emergencia` o daemon esvazia a lixeira
+de vez (`CS_TRASH_EMERGENCY_PURGE=1`). Quer manter a proteção mesmo com
+pouco espaço? Mude para `0` no `clean-select.env` — mas aí o espaço só
+volta quando a retenção (`CS_TRASH_DAYS`) vencer.
+
 ## 6. Configuração — `clean-select.env`
 
 Tudo que é número ou caminho do programa mora no arquivo **`clean-select.env`**

@@ -56,6 +56,8 @@ export const cfg = {
 
   // — lixeira / log —
   trashDays: num("CS_TRASH_DAYS", 7),
+  /** 1 = em modo emergência a lixeira é esvaziada de vez (libera espaço REAL) */
+  trashEmergencyPurge: num("CS_TRASH_EMERGENCY_PURGE", 1),
   logMaxMb: num("CS_LOG_MAX_MB", 5),
 
   // — dedupe —

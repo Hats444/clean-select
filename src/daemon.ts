@@ -2,7 +2,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import type { Finding, Rules, ScanStats } from "./types.ts";
 import { CS_HOME, diskInfo, mb, nowIso, sizeFmt } from "./util.ts";
 import { cfg } from "./config.ts";
-import { log, purgeOldTrash, trashSize } from "./trash.ts";
+import { emptyTrash, log, purgeOldTrash, trashSize } from "./trash.ts";
 import { applyFindings, runningCwds } from "./cleaner.ts";
 import { findDuplicates } from "./dedupe.ts";
 import { recordRun } from "./stats.ts";
@@ -212,7 +212,13 @@ export async function daemonLoop(
         freedByLetter.M = (freedByLetter.M ?? 0) + rd.freed;
 
         const trashedBefore = await trashSize();
-        await purgeOldTrash();
+        // emergência: lixeira não protege — ela ocupa o espaço que queremos liberar
+        if (mode === "emergencia" && cfg.trashEmergencyPurge) {
+          const purged = await emptyTrash();
+          if (purged > 0) console.log(`        EMERGÊNCIA: lixeira esvaziada de vez (+${sizeFmt(purged)})`);
+        } else {
+          await purgeOldTrash();
+        }
         const trashedAfter = await trashSize();
         await recordRun({
           date: new Date().toISOString(), profile: `daemon:${mode}`,
@@ -222,7 +228,7 @@ export async function daemonLoop(
 
         const f1 = await free();
         console.log(`  [4/4] resultado:`);
-        console.log(`        lixeira: ${mb(trashedAfter)} MB${trashedBefore !== trashedAfter ? ` (purgou ${mb(Math.max(0, trashedBefore - trashedAfter))} MB >7d)` : ""}`);
+        console.log(`        lixeira: ${mb(trashedAfter)} MB${trashedBefore !== trashedAfter ? ` (liberou ${mb(Math.max(0, trashedBefore - trashedAfter))} MB)` : ""}`);
         console.log(`        espaço:  ${bar(f1.pct)} ${f1.pct.toFixed(1)}%  (${f1.mb > f0.mb ? "+" : ""}${sizeFmt(Math.abs(f1.mb - f0.mb) * 1048576)} real)`);
         console.log(`        ciclo: ${r.removed + rd.removed} itens, ${mb(freed)} MB, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         await log(`ciclo ${mode}: ${r.removed + rd.removed} itens ${Math.round(freed / 1048576)}MB livre=${f1.pct.toFixed(1)}%`);
