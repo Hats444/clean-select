@@ -5,7 +5,7 @@ import { cfg, reloadCfg } from "./config.ts";
 import { acquireLock } from "./cleaner.ts";
 import { emptyTrash, log, purgeOldTrash, trashSize } from "./trash.ts";
 import { applyFindings, runningCwds } from "./cleaner.ts";
-import { findDuplicates } from "./dedupe.ts";
+import { findDuplicates, findDuplicateDirs } from "./dedupe.ts";
 import { recordRun } from "./stats.ts";
 import { asciiBar } from "./report.ts";
 
@@ -210,7 +210,7 @@ export async function daemonLoop(
         const r = await applyFindings(auto, { cwds, root, direct, shouldStop, onProgress: progress });
         console.log(`        regras: ${r.removed} movidos, ${r.failed} falhas, ${mb(r.freed)} MB`);
 
-        const { groups } = await findDuplicates(dedupeCandidates, {
+        const { groups, index: dupIndex } = await findDuplicates(dedupeCandidates, {
           priorities: rules.dedupePriority,
           autoZones: rules.dedupeAutoZones,
           auto: mode !== "emergencia",
@@ -228,6 +228,15 @@ export async function daemonLoop(
         }
         const dupMb = dupFindings.reduce((a, x) => a + x.size, 0);
         console.log(`        dedupe: ${groups.length} grupos -> ${dupFindings.length} cópias, ${mb(dupMb)} MB`);
+
+        // dedupe de PASTAS inteiras (árvore idêntica por hash + byte a byte)
+        const hashOf = (p: string) => dupIndex[p]?.hash;
+        const dirDups = await findDuplicateDirs(dedupeCandidates, hashOf, {
+          priorities: rules.dedupePriority,
+        });
+        for (const dd of dirDups.slice(0, 5)) {
+          console.log(`           pasta espelho: ${dd.rel} (${dd.files} arquivos, ${mb(dd.size)} MB) — mantém ${dd.keep}`);
+        }
         for (const g of groups.filter((g) => g.remove.length).slice(0, 3)) {
           console.log(`             ${mb(g.size)} MB x${g.files.length} — mantém ${g.keep!.rel.slice(0, 55)}`);
         }

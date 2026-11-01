@@ -185,6 +185,7 @@ export async function findDuplicates(files: FileEntry[], opts: DupOptions): Prom
       if (parr.length < 2) continue;
       // 3) sha256 completo por stream, separando por conta (nunca cruzar contas)
       const byHash = new Map<string, DupFile[]>();
+      let hashed = 0;
       for (const f of parr) {
         let h: string;
         const key = f.path;
@@ -195,6 +196,7 @@ export async function findDuplicates(files: FileEntry[], opts: DupOptions): Prom
           try { h = await fullHash(f.path); } catch { continue; }
           idx[key] = { size: f.size, mtime: f.mtimeMs, hash: h };
         }
+        if (++hashed % 200 === 0) opts.onProgress?.(`dedupe: ${hashed} hashes calculados`);
         const k2 = `${f.account ?? "-"}:${h}`;
         const a3 = byHash.get(k2) ?? [];
         a3.push(f);
@@ -240,7 +242,103 @@ export async function findDuplicates(files: FileEntry[], opts: DupOptions): Prom
     g.remove = verified;
   }
 
+  // poda do cache: entradas de arquivos que não apareceram nesta run somem
+  const seen = new Set(cand.map((f) => f.path));
+  for (const k of Object.keys(idx)) if (!seen.has(k)) delete idx[k];
   await saveIndex(idx);
+
   groups.sort((a, b) => b.size * b.remove.length - a.size * a.remove.length);
   return { groups, index: idx };
+}
+
+export interface DupDir {
+  rel: string;
+  keep: string;
+  files: number;
+  size: number;
+}
+
+/**
+ * Dedupe de PASTAS inteiras: fingerprint = hash da árvore (nome+size+sha de
+ * cada arquivo). Duas pastas idênticas viram unidade: verifica byte a byte
+ * e marca a pior para sair inteira.
+ */
+export async function findDuplicateDirs(
+  files: { path: string; rel: string; size: number; mtimeMs: number }[],
+  hashOf: (path: string) => string | undefined,
+  opts: { priorities: string[]; maxVerify?: number },
+): Promise<DupDir[]> {
+  // monta árvore: dir -> linhas "relpath|size|hash"
+  const tree = new Map<string, string[]>();
+  const fileOf = new Map<string, DupFile>();
+  for (const f of files) {
+    const rel = f.rel.toLowerCase();
+    const i = rel.lastIndexOf("/");
+    if (i < 0) continue;
+    const dir = rel.slice(0, i);
+    const h = hashOf(f.path) ?? `s${f.size}`;
+    const a = tree.get(dir) ?? [];
+    a.push(`${rel.slice(i + 1)}|${f.size}|${h}`);
+    tree.set(dir, a);
+    fileOf.set(rel, f);
+  }
+  const fp = new Map<string, string[]>();
+  for (const [dir, lines] of tree) {
+    if (lines.length < 3) continue; // pasta com pouca coisa não compensa
+    lines.sort();
+    const hash = createHash("sha256").update(lines.join("\n")).digest("hex");
+    const a = fp.get(hash) ?? [];
+    a.push(dir);
+    fp.set(hash, a);
+  }
+  const out: DupDir[] = [];
+  const maxVerify = opts.maxVerify ?? 300;
+  for (const dirs of fp.values()) {
+    if (dirs.length < 2) continue;
+    // só conta que não seja subpasta de outra no mesmo grupo
+    const tops = dirs.filter((d) => !dirs.some((o) => o !== d && d.startsWith(o + "/")));
+    if (tops.length < 2) continue;
+    const dFiles = tops.map((d) => dirs.filter((x) => x === d || x.startsWith(d + "/")));
+    const count = dFiles.map((a) => a.length);
+    const size = new Map<string, number>();
+    for (const d of tops) {
+      let s = 0;
+      for (const sub of dirs.filter((x) => x === d || x.startsWith(d + "/"))) {
+        for (const line of tree.get(sub) ?? []) s += Number(line.split("|")[1]);
+      }
+      size.set(d, s);
+    }
+    // escolhe o mantido pela prioridade configurada
+    const ranked = [...tops].sort((a, b) => {
+      const pa = priorityOf(a, opts.priorities);
+      const pb = priorityOf(b, opts.priorities);
+      return pa !== pb ? pa - pb : a.length - b.length;
+    });
+    const keep = ranked[0];
+    // verificação byte a byte de TODOS os arquivos pareados
+    for (const d of ranked.slice(1)) {
+      const members: [string, string][] = [];
+      let ok = true, checked = 0, totalSize = 0;
+      for (const sub of dirs.filter((x) => x === d || x.startsWith(d + "/"))) {
+        for (const line of tree.get(sub) ?? []) {
+          const name = line.split("|")[0];
+          const relA = `${sub}/${name}`;
+          const relB = `${keep}/${relA.slice(d.length + 1)}`;
+          members.push([relA, relB]);
+          totalSize += Number(line.split("|")[1]);
+        }
+      }
+      if (members.length > maxVerify) continue; // grande demais p/ verificar — não arrisca
+      for (const [ra, rb] of members) {
+        const fa = fileOf.get(ra);
+        const fb = fileOf.get(rb);
+        if (!fa || !fb || !(await sameBytes(fa.path, fb.path))) { ok = false; break; }
+        checked++;
+      }
+      if (ok && checked === members.length) {
+        out.push({ rel: d, keep, files: count[tops.indexOf(d)] ?? members.length, size: totalSize });
+      }
+    }
+  }
+  return out;
 }
