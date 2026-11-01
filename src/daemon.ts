@@ -197,7 +197,14 @@ export async function daemonLoop(
         if (cwds.length) console.log(`        bots ativos (cwd): ${cwds.join(", ")} — projetos pulados`);
 
         console.log(`  [3/4] movendo p/ lixeira...`);
-        const r = await applyFindings(auto, { cwds, root });
+        // emergencia: delete direto — copiar p/ lixeira enche o disco (fuse->ext4)
+        const direct = mode === "emergencia" ? () => true : undefined;
+        let lastPct = -1;
+        const progress = (done: number, total: number) => {
+          const p = Math.round((done / Math.max(1, total)) * 100);
+          if (p >= lastPct + 10) { lastPct = p; console.log(`        ...${p}% (${done}/${total})`); }
+        };
+        const r = await applyFindings(auto, { cwds, root, direct, onProgress: progress });
         console.log(`        regras: ${r.removed} movidos, ${r.failed} falhas, ${mb(r.freed)} MB`);
 
         const { groups } = await findDuplicates(dedupeCandidates, {
@@ -221,7 +228,7 @@ export async function daemonLoop(
         for (const g of groups.filter((g) => g.remove.length).slice(0, 3)) {
           console.log(`             ${mb(g.size)} MB x${g.files.length} — mantém ${g.keep!.rel.slice(0, 55)}`);
         }
-        const rd = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root });
+        const rd = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root, direct, onProgress: progress });
 
         const freed = r.freed + rd.freed;
         lastFreed = freed;

@@ -2,7 +2,7 @@ import { lstat, mkdir, readdir, readFile, readlink, rm, writeFile } from "node:f
 import { createInterface } from "node:readline/promises";
 import type { Finding } from "./types.ts";
 import { CS_HOME, LOCK_FILE, mb } from "./util.ts";
-import { log, toTrash } from "./trash.ts";
+import { log, toTrashBatch } from "./trash.ts";
 
 /* ================= N: fusíveis ================= */
 
@@ -97,20 +97,50 @@ export async function applyFindings(findings: Finding[], opts: {
   cwds?: string[];
   root?: string;
   runId?: string;
+  /** retorna true p/ apagar DIRETO sem lixeira (emergência: a cópia encheria o disco) */
+  direct?: (f: Finding) => boolean;
+  onProgress?: (done: number, total: number) => void;
 } = {}): Promise<ApplyResult> {
   const res: ApplyResult = { removed: 0, freed: 0, failed: 0, byLetter: {} };
+
+  // 1) rechecagem + split trash vs delete direto
+  const toTrashList: { f: Finding; path: string; meta?: { hash?: string; keptOriginal?: string } }[] = [];
+  const toDelete: Finding[] = [];
   for (const f of findings) {
     if (opts.cwds && opts.root && underRunningProject(f.rel, opts.cwds, opts.root)) {
       await log(`skip (projeto rodando): ${f.rel}`);
       continue;
     }
     if (!(await recheck(f))) { res.failed++; continue; }
-    const id = await toTrash(f.path, { ...opts.meta?.(f), run: opts.runId });
-    if (id) {
+    if (opts.direct?.(f)) toDelete.push(f);
+    else toTrashList.push({ f, path: f.path, meta: opts.meta?.(f) });
+  }
+
+  // 2) delete direto (emergência) — rm sem copiar nada
+  for (const f of toDelete) {
+    try {
+      await rm(f.path, { recursive: true, force: true });
       res.removed++;
       res.freed += f.size;
       res.byLetter[f.letter] = (res.byLetter[f.letter] ?? 0) + f.size;
+    } catch {
+      res.failed++;
+    }
+    opts.onProgress?.(res.removed + res.failed, findings.length);
+  }
+
+  // 3) lixeira EM LOTE — manifest uma vez só (era por item = O(n²))
+  const ids = await toTrashBatch(
+    toTrashList.map((x) => ({ path: x.path, meta: { ...x.meta, } })),
+    opts.runId,
+  );
+  for (const x of toTrashList) {
+    if (ids.has(x.path)) {
+      res.removed++;
+      res.freed += x.f.size;
+      res.byLetter[x.f.letter] = (res.byLetter[x.f.letter] ?? 0) + x.f.size;
     } else res.failed++;
+    opts.onProgress?.(res.removed + res.failed, findings.length);
   }
   return res;
 }

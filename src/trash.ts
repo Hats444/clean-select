@@ -72,6 +72,46 @@ export async function toTrash(
   }
 }
 
+/** Versão em lote: manifest lido/escrito UMA vez (toTrash por item era O(n²)). */
+export async function toTrashBatch(
+  items: { path: string; meta?: { hash?: string; keptOriginal?: string } }[],
+  runId?: string,
+): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  if (!items.length) return ids;
+  await mkdir(TRASH_DIR, { recursive: true });
+  const m = await loadManifest();
+  for (const it of items) {
+    const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const dest = join(TRASH_DIR, id);
+    try {
+      let size = 0, isDir = false;
+      try {
+        const st = await stat(it.path);
+        size = st.size;
+        isDir = st.isDirectory();
+      } catch { continue; }
+      const destPath = join(dest, basename(it.path));
+      try {
+        await mkdir(dest, { recursive: true });
+        await rename(it.path, destPath);
+      } catch {
+        await mkdir(dest, { recursive: true });
+        await cp(it.path, destPath, { recursive: true });
+        await rm(it.path, { recursive: isDir, force: true });
+      }
+      if (isDir) size = await dirSize(destPath);
+      m.push({ id, original: it.path, trashedAt: Date.now(), size, hash: it.meta?.hash, keptOriginal: it.meta?.keptOriginal, run: runId });
+      ids.set(it.path, id);
+    } catch {
+      /* falhou esse item, segue */
+    }
+  }
+  await saveManifest(m);
+  await log(`trash batch: ${ids.size}/${items.length} itens`);
+  return ids;
+}
+
 export async function listTrash(): Promise<TrashEntry[]> {
   return loadManifest();
 }
