@@ -100,6 +100,8 @@ export async function applyFindings(findings: Finding[], opts: {
   /** retorna true p/ apagar DIRETO sem lixeira (emergência: a cópia encheria o disco) */
   direct?: (f: Finding) => boolean;
   onProgress?: (done: number, total: number) => void;
+  /** chamada a cada lote de itens; true = parar de aplicar (meta atingida) */
+  shouldStop?: () => Promise<boolean>;
 } = {}): Promise<ApplyResult> {
   const res: ApplyResult = { removed: 0, freed: 0, failed: 0, byLetter: {} };
 
@@ -116,8 +118,12 @@ export async function applyFindings(findings: Finding[], opts: {
     else toTrashList.push({ f, path: f.path, meta: opts.meta?.(f) });
   }
 
+  const STOP_CHECK = 250;
+  const checkStop = async () => opts.shouldStop && (await opts.shouldStop());
+
   // 2) delete direto (emergência) — rm sem copiar nada
   for (const f of toDelete) {
+    if ((res.removed + res.failed) % STOP_CHECK === 0 && (await checkStop())) break;
     try {
       await rm(f.path, { recursive: true, force: true });
       res.removed++;
@@ -130,6 +136,7 @@ export async function applyFindings(findings: Finding[], opts: {
   }
 
   // 3) lixeira EM LOTE — manifest uma vez só (era por item = O(n²))
+  if (await checkStop()) toTrashList.length = 0;
   const ids = await toTrashBatch(
     toTrashList.map((x) => ({ path: x.path, meta: { ...x.meta, } })),
     opts.runId,

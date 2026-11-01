@@ -199,12 +199,15 @@ export async function daemonLoop(
         console.log(`  [3/4] movendo p/ lixeira...`);
         // emergencia: delete direto — copiar p/ lixeira enche o disco (fuse->ext4)
         const direct = mode === "emergencia" ? () => true : undefined;
+        // fora do diario: para de aplicar assim que a meta de livre for atingida
+        const shouldStop = mode === "diario" ? undefined
+          : async () => (await free()).pct >= cfg.freeTargetPct;
         let lastPct = -1;
         const progress = (done: number, total: number) => {
           const p = Math.round((done / Math.max(1, total)) * 100);
           if (p >= lastPct + 10) { lastPct = p; console.log(`        ...${p}% (${done}/${total})`); }
         };
-        const r = await applyFindings(auto, { cwds, root, direct, onProgress: progress });
+        const r = await applyFindings(auto, { cwds, root, direct, shouldStop, onProgress: progress });
         console.log(`        regras: ${r.removed} movidos, ${r.failed} falhas, ${mb(r.freed)} MB`);
 
         const { groups } = await findDuplicates(dedupeCandidates, {
@@ -228,7 +231,7 @@ export async function daemonLoop(
         for (const g of groups.filter((g) => g.remove.length).slice(0, 3)) {
           console.log(`             ${mb(g.size)} MB x${g.files.length} — mantém ${g.keep!.rel.slice(0, 55)}`);
         }
-        const rd = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root, direct, onProgress: progress });
+        const rd = await applyFindings(dupFindings, { meta: (f) => meta.get(f.path) ?? {}, cwds, root, direct, shouldStop, onProgress: progress });
 
         const freed = r.freed + rd.freed;
         lastFreed = freed;
