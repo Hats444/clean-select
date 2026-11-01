@@ -8,6 +8,7 @@ import { scan } from "./scanner.ts";
 import {
   appBackupFindings, classifyFile, emptyDirFindings, extractedArchiveFindings,
   nestedDupFindings, nodeModulesFindings, protectedReason, rotateBackups,
+  SKIP_SCAN_DIRS,
   type ClassifyCtx, type StructureInfo,
 } from "./classifier.ts";
 import {
@@ -98,7 +99,8 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
   let seen = 0;
   const stats = await scan({
     root,
-    skipDir: undefined,
+    // pula subárvores que nunca rendem achado nem dedupe (sessions, auth, creds...)
+    skipDir: (rel, name) => SKIP_SCAN_DIRS.has(name.toLowerCase()),
     onDir: (rel, name) => {
       info.dirs.add(rel);
       if (name === "node_modules") nmDirs.push(rel);
@@ -125,7 +127,7 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
         arr.push(e);
         info.filesByDir.set(parent, arr);
       }
-      if (e.size >= 4096) dedupeCandidates.push(e);
+      if (ctx.dedupe && e.size >= 4096) dedupeCandidates.push(e);
       if (e.size >= 50 * 1024 * 1024) {
         topFiles.push(e);
         topFiles.sort((a, b) => b.size - a.size);
@@ -340,6 +342,7 @@ async function main(): Promise<void> {
             pruneModules: mode !== "diario",
             termux: !!v.termux,
             ignoreGlobs: ignore,
+            dedupe: true,                       // o daemon sempre deduplica
           };
           const r = await runScan(root, ctx, rules);
           return {
@@ -381,6 +384,8 @@ async function main(): Promise<void> {
       pruneModules: !!v["prune-modules"] || !!perfil?.prune,
       termux: !!v.termux,
       ignoreGlobs: await loadIgnore(),
+      // só gasta memória coletando candidatos quando o dedupe realmente vai rodar
+      dedupe: !!v.dup || !!v.auto || !!perfil?.dupAuto,
     };
   }
 

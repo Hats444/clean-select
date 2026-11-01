@@ -89,6 +89,11 @@ export function protectedReason(rel: string): string | null {
 
 /* ================= CLASSIFICAÇÃO POR REGRAS (rules.json) ================= */
 
+/** pastas cujo conteúdo é sempre intocável — o scanner nem desce nelas */
+export const SKIP_SCAN_DIRS = new Set([
+  "session", "sessions", "auth", "creds", "pairing", "zerotwo-qr", "baileys_auth",
+]);
+
 export interface ClassifyCtx {
   rules: Rules;
   ageDays: number;
@@ -98,6 +103,8 @@ export interface ClassifyCtx {
   pruneModules: boolean;
   termux: boolean;
   ignoreGlobs: string[];
+  /** coletar candidatos de dedupe durante a varredura (só quando vai usar) */
+  dedupe?: boolean;
 }
 
 function ruleEnabled(r: Rule, ctx: ClassifyCtx): boolean {

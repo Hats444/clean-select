@@ -48,6 +48,17 @@ export async function scan(opts: ScanOptions): Promise<ScanStats> {
         const dir = await opendir(join(root, rel || "."));
         for await (const d of dir) {
           const crel = rel ? `${rel}/${d.name}` : d.name;
+          // Dirent já diz tipo: evita um lstat por pasta/symlink (metade das syscalls)
+          if (d.isDirectory()) {
+            stats.dirs++;
+            const skipped = opts.skipDir?.(normRel(crel), d.name) ?? false;
+            opts.onDir?.(normRel(crel), d.name, skipped);
+            if (!skipped) queue.push(crel);
+            continue;
+          }
+          if (d.isSymbolicLink() || d.isFIFO() || d.isSocket() || d.isCharacterDevice() || d.isBlockDevice()) {
+            continue; // nunca seguir
+          }
           const abs = join(root, crel);
           let st;
           try {
@@ -57,12 +68,7 @@ export async function scan(opts: ScanOptions): Promise<ScanStats> {
             continue;
           }
           if (st.isSymbolicLink()) continue;
-          if (d.isDirectory() || st.isDirectory()) {
-            stats.dirs++;
-            const skipped = opts.skipDir?.(normRel(crel), d.name) ?? false;
-            opts.onDir?.(normRel(crel), d.name, skipped);
-            if (!skipped) queue.push(crel);
-          } else if (st.isFile()) {
+          if (st.isFile()) {
             if (now - st.mtimeMs < minAge) continue;
             stats.files++;
             stats.bytes += st.size;
