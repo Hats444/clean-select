@@ -1,5 +1,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { statfs } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileP = promisify(execFile);
 
 export const CS_HOME = process.env.CLEAN_SELECT_HOME ?? join(homedir(), ".clean_select");
 export const TRASH_DIR = join(CS_HOME, "trash");
@@ -59,4 +64,43 @@ export function mb(bytes: number): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+export interface DiskInfo {
+  /** bytes livres para apps */
+  free: number;
+  /** bytes totais do volume */
+  total: number;
+  /** de onde veio a leitura */
+  source: "statfs" | "df" | "none";
+}
+
+/**
+ * Memória real do celular em tempo real. statfs primeiro; se vier zerado
+ * (mounts estranhos/Windows), cai p/ `df -k <path>` (funciona no Termux).
+ */
+export async function diskInfo(path: string): Promise<DiskInfo> {
+  try {
+    const s = await statfs(path);
+    const free = s.bavail * s.bsize;
+    const total = s.blocks * s.bsize;
+    // alguns ambientes devolvem blocos/bogus: aceita só se total > 1 MB
+    if (Number.isFinite(total) && total > 1024 * 1024) return { free, total, source: "statfs" };
+  } catch { /* cai p/ df */ }
+  try {
+    const { stdout } = await execFileP("df", ["-k", path], { timeout: 8000 });
+    const line = stdout.trim().split("\n").pop() ?? "";
+    const cols = line.trim().split(/\s+/);
+    // df: Filesystem 1K-blocks Used Available Use% Mounted
+    const total = Number(cols[1]) * 1024;
+    const free = Number(cols[3]) * 1024;
+    if (Number.isFinite(total) && total > 0) return { free, total, source: "df" };
+  } catch { /* sem df */ }
+  return { free: 0, total: 0, source: "none" };
+}
+
+/** formata bytes: MB até 1024, depois GB com 1 casa */
+export function sizeFmt(bytes: number): string {
+  const mbV = bytes / 1048576;
+  return mbV >= 1024 ? `${(mbV / 1024).toFixed(1)} GB` : `${mbV.toFixed(1)} MB`;
 }

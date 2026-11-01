@@ -1,6 +1,6 @@
-import { statfs, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import type { Finding, Rules, ScanStats } from "./types.ts";
-import { CS_HOME, mb, nowIso } from "./util.ts";
+import { CS_HOME, diskInfo, mb, nowIso, sizeFmt } from "./util.ts";
 import { log, purgeOldTrash, trashSize } from "./trash.ts";
 import { applyFindings, runningCwds } from "./cleaner.ts";
 import { findDuplicates } from "./dedupe.ts";
@@ -81,12 +81,13 @@ export async function daemonLoop(
   let cycles = 0;
 
   const free = async () => {
-    try {
-      const s = await statfs(root);
-      return { mb: s.bavail * s.bsize / 1048576, pct: (s.bavail / s.blocks) * 100, total: s.blocks * s.bsize / 1048576 };
-    } catch {
-      return { mb: 0, pct: 100, total: 0 };
-    }
+    const d = await diskInfo(root);
+    return {
+      mb: d.free / 1048576,
+      pct: d.total > 0 ? (d.free / d.total) * 100 : 100,
+      total: d.total / 1048576,
+      source: d.source,
+    };
   };
 
   const beat = async (extra: Record<string, unknown> = {}) => {
@@ -108,12 +109,22 @@ export async function daemonLoop(
     new Promise((resolve) => {
       if (!process.stdout.isTTY) return void setTimeout(resolve, ms);
       const end = Date.now() + ms;
+      let tick = 0;
       const t = setInterval(() => {
         const left = Math.max(0, end - Date.now());
         const m = Math.floor(left / 60000);
         const s = Math.floor((left % 60000) / 1000);
-        process.stdout.write(`\r  ⏳ próxima verificação em ${m}m${String(s).padStart(2, "0")}s   `);
-        if (left <= 0) { clearInterval(t); process.stdout.write("\r" + " ".repeat(50) + "\r"); resolve(); }
+        // a cada 10s repuxa a memória real do celular
+        if (++tick % 10 === 1) {
+          void free().then((f) => {
+            process.stdout.write(
+              `\r  📱 ${sizeFmt(f.mb * 1048576)} livre (${f.pct.toFixed(1)}%) | próxima verificação em ${m}m${String(s).padStart(2, "0")}s   `,
+            );
+          }).catch(() => undefined);
+        } else {
+          process.stdout.write(`\r  📱 — | próxima verificação em ${m}m${String(s).padStart(2, "0")}s   `);
+        }
+        if (left <= 0) { clearInterval(t); process.stdout.write("\r" + " ".repeat(60) + "\r"); resolve(); }
       }, 1000);
       t.unref?.();
     });
@@ -135,7 +146,7 @@ export async function daemonLoop(
       lastMode = mode;
 
       console.log(`\n══ ciclo #${cycles} — ${nowIso()} ══`);
-      console.log(`  espaço: ${bar(f0.pct)} ${f0.pct.toFixed(1)}% livre (${mb(f0.mb)} MB de ${mb(f0.total)} MB)`);
+      console.log(`  espaço: ${bar(f0.pct)} ${f0.pct.toFixed(1)}% livre (${sizeFmt(f0.mb * 1048576)} de ${sizeFmt(f0.total * 1048576)}) [${f0.source}]`);
       console.log(`  modo: ${mode.toUpperCase()}${due ? " (janela diária)" : shouldRun && mode !== "diario" ? " (espaço apertado)" : ""}`);
 
       if (!shouldRun) {
@@ -211,7 +222,7 @@ export async function daemonLoop(
         const f1 = await free();
         console.log(`  [4/4] resultado:`);
         console.log(`        lixeira: ${mb(trashedAfter)} MB${trashedBefore !== trashedAfter ? ` (purgou ${mb(Math.max(0, trashedBefore - trashedAfter))} MB >7d)` : ""}`);
-        console.log(`        espaço:  ${bar(f1.pct)} ${f1.pct.toFixed(1)}%  (${f1.mb > f0.mb ? "+" : ""}${mb(f1.mb - f0.mb)} MB real)`);
+        console.log(`        espaço:  ${bar(f1.pct)} ${f1.pct.toFixed(1)}%  (${f1.mb > f0.mb ? "+" : ""}${sizeFmt(Math.abs(f1.mb - f0.mb) * 1048576)} real)`);
         console.log(`        ciclo: ${r.removed + rd.removed} itens, ${mb(freed)} MB, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         await log(`ciclo ${mode}: ${r.removed + rd.removed} itens ${Math.round(freed / 1048576)}MB livre=${f1.pct.toFixed(1)}%`);
         await beat({ mode, freedMb: Math.round(freed / 1048576) });

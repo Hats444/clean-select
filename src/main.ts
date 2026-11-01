@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { readFile, statfs, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -21,7 +21,7 @@ import { LETTER_NAMES, printDupReport, printFindings, scanSummary } from "./repo
 import { loadHistory, recordRun, statsReport, growthAlerts } from "./stats.ts";
 import { diffMap, loadSizes, refreshMap } from "./map.ts";
 import { remoteLoop } from "./remote.ts";
-import { CS_HOME, matchAny, mb, normRel } from "./util.ts";
+import { CS_HOME, diskInfo, matchAny, mb, normRel, sizeFmt } from "./util.ts";
 
 const exec = promisify(execFile);
 const BASE = join(import.meta.dirname, "..");
@@ -168,9 +168,7 @@ async function applyAll(findings: Finding[], root: string, rules: Rules, totalFi
 
   // --alvo N GB: para assim que o espaço livre atingir a meta
   const alvoBytes = v.alvo ? Number(v.alvo) * 1024 ** 3 : Infinity;
-  const freeNow = async () => {
-    try { const s = await statfs(root); return s.bavail * s.bsize; } catch { return 0; }
-  };
+  const freeNow = async () => (await diskInfo(root)).free;
   const reachedTarget = async () => (await freeNow()) >= alvoBytes;
 
   let freedTotal = 0;
@@ -246,12 +244,8 @@ async function doctor(root: string): Promise<void> {
   } catch (e) {
     ok(false, `rules.json inválido: ${String(e)}`);
   }
-  try {
-    const s = await statfs(root);
-    ok(true, `espaço livre: ${mb(s.bavail * s.bsize)} MB / total ${mb(s.blocks * s.bsize)} MB`);
-  } catch {
-    ok(false, "statfs indisponível");
-  }
+  const d = await diskInfo(root);
+  ok(d.source !== "none", `espaço livre: ${sizeFmt(d.free)} / total ${sizeFmt(d.total)} [${d.source}]`);
   console.log(`lixeira: ${mb(await trashSize())} MB`);
 }
 
@@ -392,7 +386,7 @@ async function main(): Promise<void> {
   if (v.remote) {
     const ctx = await makeCtx();
     return remoteLoop({
-      status: async () => `livre: ${mb((await statfs(root)).bavail * (await statfs(root)).bsize)} MB | lixeira ${mb(await trashSize())} MB`,
+      status: async () => `livre: ${sizeFmt((await diskInfo(root)).free)} | lixeira ${mb(await trashSize())} MB`,
       dryRun: async () => {
         const r = await runScan(root, ctx, rules);
         return `${r.findings.length} itens, ${mb(r.findings.reduce((a, f) => a + f.size, 0))} MB`;
@@ -511,10 +505,8 @@ async function main(): Promise<void> {
       return;
     }
     await applyAll(actionable, root, rules, stats.files, runId);
-    try {
-      const after = await statfs(root);
-      console.log(`espaço livre agora: ${mb(after.bavail * after.bsize)} MB`);
-    } catch { /* ok */ }
+    const after = await diskInfo(root);
+    if (after.source !== "none") console.log(`espaço livre agora: ${sizeFmt(after.free)}`);
     console.log(`concluído em ${((Date.now() - started) / 1000).toFixed(1)}s`);
   } catch (e) {
     if (e instanceof FuseError) {
