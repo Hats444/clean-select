@@ -53,11 +53,11 @@ export async function statsReport(): Promise<string> {
 }
 
 /** P: alerta de crescimento — pasta que cresceu >500MB em 7 dias (compara com reference/tamanhos.txt anterior). */
-export function growthAlerts(oldSizes: Map<string, number>, newSizes: Map<string, number>): string[] {
+export function growthAlerts(oldSizes: Map<string, number>, newSizes: Map<string, number>, thresholdMb = 500): string[] {
   const out: string[] = [];
   for (const [dir, size] of newSizes) {
     const old = oldSizes.get(dir);
-    if (old !== undefined && size - old > 500 * 1024 * 1024) {
+    if (old !== undefined && size - old > thresholdMb * 1024 * 1024) {
       out.push(`${dir}: +${mb(size - old)} MB em 7 dias`);
     }
   }

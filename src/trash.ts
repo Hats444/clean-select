@@ -3,9 +3,10 @@ import { basename, dirname, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import type { TrashEntry } from "./types.ts";
 import { CS_HOME, LOG_FILE, TRASH_DIR, nowIso } from "./util.ts";
+import { cfg } from "./config.ts";
 
 const MANIFEST = join(TRASH_DIR, "manifest.json");
-const RETENTION_MS = 7 * 86_400_000;
+const RETENTION_MS = cfg.trashDays * 86_400_000;
 
 export async function log(msg: string): Promise<void> {
   try {
@@ -13,7 +14,7 @@ export async function log(msg: string): Promise<void> {
     // rotação simples do próprio log (5 MB)
     try {
       const st = await stat(LOG_FILE);
-      if (st.size > 5 * 1024 * 1024) await rename(LOG_FILE, LOG_FILE + ".1");
+      if (st.size > cfg.logMaxMb * 1024 * 1024) await rename(LOG_FILE, LOG_FILE + ".1");
     } catch { /* ok */ }
     await appendFile(LOG_FILE, `${nowIso()} ${msg}\n`);
   } catch { /* log nunca quebra o fluxo */ }

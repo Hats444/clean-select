@@ -22,15 +22,16 @@ import { loadHistory, recordRun, statsReport, growthAlerts } from "./stats.ts";
 import { diffMap, loadSizes, refreshMap } from "./map.ts";
 import { remoteLoop } from "./remote.ts";
 import { CS_HOME, diskInfo, matchAny, mb, normRel, sizeFmt } from "./util.ts";
+import { cfg } from "./config.ts";
 
 const exec = promisify(execFile);
 const BASE = join(import.meta.dirname, "..");
 const RULES_FILE = join(BASE, "rules.json");
 const IGNORE_FILE = join(BASE, "ignore.json");
-const REPORT_FILE = "/sdcard/Download/clean_select_relatorio.txt";
+const REPORT_FILE = cfg.reportFile;
 const RULES_VERSION = 1;
 
-const DEFAULT_ROOT = "/sdcard";
+const DEFAULT_ROOT = cfg.root;
 
 const { values: v } = parseArgs({
   args: process.argv.slice(2),
@@ -160,7 +161,7 @@ async function runScan(root: string, ctx: ClassifyCtx, rules: Rules) {
 /* =================== aplicação =================== */
 
 async function applyAll(findings: Finding[], root: string, rules: Rules, totalFiles: number, runId: string): Promise<void> {
-  checkFuses(findings.filter((f) => f.level !== "relatorio"), totalFiles, rules.limits, !!v["confirmo-grande"]);
+  checkFuses(findings.filter((f) => f.level !== "relatorio"), totalFiles, { maxBytes: cfg.fuseMaxGb * 1024 ** 3, maxPercent: cfg.fuseMaxPct }, !!v["confirmo-grande"]);
   const auto = findings.filter((f) => f.level === "auto" && f.letter !== "K");
   const conf = findings.filter((f) => f.level === "confirmar");
   const cwds = await runningCwds();
@@ -205,7 +206,7 @@ async function applyAll(findings: Finding[], root: string, rules: Rules, totalFi
     freedByLetter, freedTotal, durationMs: 0,
   });
   try {
-    await writeFile(REPORT_FILE, printFindings(findings, Number(v.top ?? 10)));
+    await writeFile(REPORT_FILE, printFindings(findings, Number(v.top ?? cfg.topN)));
   } catch { /* fora do Android: ignora */ }
 }
 
@@ -333,7 +334,7 @@ async function main(): Promise<void> {
           // quanto mais apertado o espaço, menor a idade mínima e maior o escopo
           const ctx: ClassifyCtx = {
             rules,
-            ageDays: mode === "emergencia" ? 0 : mode === "reforco" ? 1 : Number(v.age ?? 3),
+            ageDays: mode === "emergencia" ? 0 : mode === "reforco" ? 1 : Number(v.age ?? cfg.ageDays),
             aggressive: mode === "emergencia",
             only: mode === "diario" ? new Set(["D", "E", "F", "G", "H", "I"]) : undefined,
             pruneModules: mode !== "diario",
@@ -350,8 +351,8 @@ async function main(): Promise<void> {
           };
         },
       }, {
-        checkMin: Number(v.intervalo ?? 30),
-        runHours: Number(v["a-cada"] ?? 24),
+        checkMin: v.intervalo ? Number(v.intervalo) : undefined,
+        runHours: v["a-cada"] ? Number(v["a-cada"]) : undefined,
       });
     } finally {
       await release2();
@@ -373,7 +374,7 @@ async function main(): Promise<void> {
     const perfil = PROFILES[String(v.perfil ?? "")];
     return {
       rules,
-      ageDays: Number(v.age ?? 3),
+      ageDays: Number(v.age ?? cfg.ageDays),
       aggressive: !!v.agressivo || !!perfil?.aggressive,
       only: letterSet(String(v.only ?? "")) ?? (perfil?.only ? new Set(perfil.only) : undefined),
       skip: letterSet(String(v.skip ?? "")),
@@ -410,7 +411,7 @@ async function main(): Promise<void> {
     console.log(scanSummary(stats, ms));
 
     // L: top maiores arquivos + tamanho por projeto
-    const topN = Number(v.top ?? 10);
+    const topN = Number(v.top ?? cfg.topN);
     if (topFiles.length) {
       const list = topFiles.slice(0, Math.max(topN, 50));
       console.log(`\n== L — maiores arquivos (50MB+) ==`);
@@ -497,7 +498,7 @@ async function main(): Promise<void> {
     const prefix = root.replace(/\/$/, "");
     const newSizes = new Map<string, number>();
     for (const [d, s] of dirSizes) newSizes.set(`${prefix}/${d}`, s);
-    const alerts = growthAlerts(oldSizes, newSizes);
+    const alerts = growthAlerts(oldSizes, newSizes, cfg.growthAlertMb);
     if (alerts.length) console.log(`\n!! crescimento >500MB/7d:\n${alerts.map((a) => "  " + a).join("\n")}`);
 
     if (!v.apply) {

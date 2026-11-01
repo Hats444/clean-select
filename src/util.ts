@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { statfs } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -6,7 +5,9 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 
-export const CS_HOME = process.env.CLEAN_SELECT_HOME ?? join(homedir(), ".clean_select");
+import { cfg } from "./config.ts";
+
+export const CS_HOME = process.env.CLEAN_SELECT_HOME ?? cfg.home;
 export const TRASH_DIR = join(CS_HOME, "trash");
 export const LOG_FILE = join(CS_HOME, "log.txt");
 export const LOCK_FILE = join(CS_HOME, "lock");

@@ -1,6 +1,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import type { Finding, Rules, ScanStats } from "./types.ts";
 import { CS_HOME, diskInfo, mb, nowIso, sizeFmt } from "./util.ts";
+import { cfg } from "./config.ts";
 import { log, purgeOldTrash, trashSize } from "./trash.ts";
 import { applyFindings, runningCwds } from "./cleaner.ts";
 import { findDuplicates } from "./dedupe.ts";
@@ -20,10 +21,10 @@ export interface DaemonHooks {
   }>;
 }
 
-/** quão fundo o piloto automático vai conforme o espaço livre */
+/** quão fundo o piloto automático vai conforme o espaço livre (thresholds no .env) */
 export function modeFor(freePct: number): DaemonMode {
-  if (freePct < 10) return "emergencia";
-  if (freePct < 25) return "reforco";
+  if (freePct < cfg.freeEmergencyPct) return "emergencia";
+  if (freePct < cfg.freeTargetPct) return "reforco";
   return "diario";
 }
 
@@ -73,8 +74,8 @@ export async function daemonLoop(
   hooks: DaemonHooks,
   opts: { checkMin?: number; runHours?: number } = {},
 ): Promise<void> {
-  const checkMs = (opts.checkMin ?? 30) * 60_000;
-  const runMs = (opts.runHours ?? 24) * 3_600_000;
+  const checkMs = (opts.checkMin ?? cfg.checkMin) * 60_000;
+  const runMs = (opts.runHours ?? cfg.runHours) * 3_600_000;
   let lastRun = 0;
   let lastMode: DaemonMode = "diario";
   let lastFreed = 0;
@@ -132,7 +133,7 @@ export async function daemonLoop(
   await log(`daemon up: root=${root} check=${opts.checkMin ?? 30}min run=${opts.runHours ?? 24}h`);
   console.log(`┌─ clean-select daemon ─ ${nowIso()}`);
   console.log(`│ root: ${root}`);
-  console.log(`│ verifica: ${opts.checkMin ?? 30}min | limpeza: ${opts.runHours ?? 24}h | emergência <10% | reforço <25%`);
+  console.log(`│ verifica: ${opts.checkMin ?? cfg.checkMin}min | limpeza: ${opts.runHours ?? cfg.runHours}h | meta livre ≥${cfg.freeTargetPct}% | emergência <${cfg.freeEmergencyPct}%`);
   console.log(`│ parar: Ctrl+C ou rm ~/.clean_select/lock | heartbeat: ${HEARTBEAT}`);
   console.log(`└${"─".repeat(60)}`);
 
@@ -150,7 +151,7 @@ export async function daemonLoop(
       console.log(`  modo: ${mode.toUpperCase()}${due ? " (janela diária)" : shouldRun && mode !== "diario" ? " (espaço apertado)" : ""}`);
 
       if (!shouldRun) {
-        console.log(`  nada a fazer — próxima limpeza agendada em ${Math.max(0, Math.round((runMs - (Date.now() - lastRun)) / 60000))}min ou se espaço < 25%`);
+        console.log(`  nada a fazer — próxima limpeza em ${Math.max(0, Math.round((runMs - (Date.now() - lastRun)) / 60000))}min ou se livre < ${cfg.freeTargetPct}%`);
         await beat({ idle: true });
       } else {
         const t0 = Date.now();

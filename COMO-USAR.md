@@ -90,7 +90,26 @@ No scan, a seção **L** agora mostra os maiores arquivos numerados
 A letra **C** compara pastas-espelho por hash (`home/container/*` vs topo do
 hanork-beta) e oferece remover o espelho quando ele é 100% idêntico.
 
-## 6. Automatizar — modo piloto automático (daemon)
+## 6. Configuração — `clean-select.env`
+
+Tudo que é número ou caminho do programa mora no arquivo **`clean-select.env`**
+(raiz do projeto). Edite quando quiser — vale na próxima execução. Variável de
+ambiente real sobrescreve o arquivo. Os mais importantes:
+
+```ini
+CS_FREE_OK_PCT=20        # memória "boa": até 80% usado
+CS_FREE_EMERGENCY_PCT=10 # acima de 90% usado = emergência
+CS_FREE_TARGET_PCT=30    # ele limpa ATÉ o livre chegar aqui
+CS_CHECK_MIN=30          # verifica espaço a cada N min
+CS_RUN_HOURS=24          # limpeza completa a cada N horas
+CS_TRASH_DAYS=7          # lixeira se esvazia após N dias
+CS_AGE_DAYS=3            # idade mínima dos alvos
+CS_FUSE_MAX_GB=5         # fusível: aborta acima de N GB por execução
+CS_DEDUPE_MIN_KB=4       # dedupe ignora arquivos < N KB
+CS_ROOT=/sdcard          # raiz varrida
+```
+
+## 7. Automatizar — modo piloto automático (daemon)
 
 O jeito mais fácil de nunca precisar rodar na mão:
 
@@ -104,11 +123,13 @@ node src/main.ts --instalar-agenda
 
 O que o daemon faz sozinho — **escalonado pelo espaço livre**:
 
-| Espaço livre | Modo | O que ele aplica sem perguntar |
-|---|---|---|
-| ≥ 25% | `diario` (a cada `--a-cada` h) | só `[auto]`: caches, logs, temps, thumbs + dedupe zonas seguras |
-| 10–25% | `reforco` (todo ciclo) | tudo do diário **+** `[confirmar]` seguros: backups velhos (mantém 3), APKs 30d+, pastas vazias, node_modules, dist — e idade mínima cai p/ 1 dia |
-| < 10% | `emergencia` (todo ciclo) | tudo acima **+** `[AGR]`: mídia antiga do WhatsApp (F3), screenshots/screenrecord velhas — idade mínima zero |
+| Usado | Livre | Modo | O que ele aplica sem perguntar |
+|---|---|---|---|
+| ≤ 80% | ≥ `FREE_TARGET` | `diario` (a cada `--a-cada` h) | só `[auto]`: caches, logs, temps, thumbs + dedupe zonas seguras |
+| 70–90% | < `FREE_TARGET` | `reforco` (todo ciclo) | tudo do diário **+** `[confirmar]` seguros: backups velhos (mantém 3), APKs 30d+, pastas vazias, node_modules, dist — idade mínima 1 dia |
+| > 90% | < `FREE_EMERGENCY` | `emergencia` (todo ciclo) | tudo acima **+** `[AGR]`: mídia antiga do WhatsApp (F3), screenshots velhas — idade mínima zero |
+
+Ele continua limpando em cada ciclo **até a memória livre atingir `CS_FREE_TARGET_PCT`** — os thresholds são todos configuráveis no `.env`.
 
 - **A cada 30 min** (`--intervalo <min>`) checa o espaço livre.
 - Abaixo de 25% ele **não espera** a janela diária: varre em todo ciclo até sobrar espaço.

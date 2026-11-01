@@ -5,9 +5,10 @@ import { dirname } from "node:path";
 import type { FileEntry } from "./types.ts";
 import { HASH_INDEX, matchAny } from "./util.ts";
 import { protectedReason } from "./classifier.ts";
+import { cfg } from "./config.ts";
 
-const MIN_SIZE = 4096;
-const PART = 64 * 1024;
+const MIN_SIZE = cfg.dedupeMinKb * 1024;
+const PART = cfg.dedupePartialKb * 1024;
 
 export type Zone = "protected" | "excluded" | "dedupe";
 

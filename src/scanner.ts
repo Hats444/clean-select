@@ -2,6 +2,7 @@ import { lstat, opendir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileEntry, ScanStats } from "./types.ts";
 import { normRel } from "./util.ts";
+import { cfg } from "./config.ts";
 
 export interface ScanOptions {
   root: string;
@@ -16,7 +17,7 @@ export interface ScanOptions {
   onDir?: (rel: string, name: string, skipped: boolean) => void;
 }
 
-const MIN_AGE_MS = 60_000;
+const MIN_AGE_MS = cfg.minFileAgeSec * 1000;
 
 /**
  * Varredura assíncrona com fs.opendir e concorrência limitada.
@@ -25,7 +26,7 @@ const MIN_AGE_MS = 60_000;
  */
 export async function scan(opts: ScanOptions): Promise<ScanStats> {
   const { root } = opts;
-  const conc = opts.concurrency ?? 16;
+  const conc = opts.concurrency ?? cfg.scanConcurrency;
   const minAge = opts.minFileAgeMs ?? MIN_AGE_MS;
   const now = Date.now();
   const stats: ScanStats = { files: 0, dirs: 0, bytes: 0, ignored: 0 };
