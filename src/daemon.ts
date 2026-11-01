@@ -133,8 +133,19 @@ export async function daemonLoop(
         }
         if (left <= 0) { clearInterval(t); process.stdout.write("\r" + " ".repeat(60) + "\r"); resolve(); }
       }, 1000);
-      t.unref?.();
+      // NUNCA unref aqui: unref matava o processo no idle (event loop vazio)
+      // — era o bug que "desligava o daemon sozinho" entre os ciclos
     });
+
+  // guarda-chuva final: nenhuma exceção solta pode derrubar o daemon
+  process.on("uncaughtException", (e) => {
+    void log(`uncaught: ${String(e)}`);
+    console.error("  erro não tratado (daemon segue vivo):", String(e));
+  });
+  process.on("unhandledRejection", (e) => {
+    void log(`rejection: ${String(e)}`);
+    console.error("  promise rejeitada (daemon segue vivo):", String(e));
+  });
 
   await log(`daemon up: root=${root} check=${opts.checkMin ?? 30}min run=${opts.runHours ?? 24}h`);
   console.log(`clean-select daemon — ${nowIso()}`);

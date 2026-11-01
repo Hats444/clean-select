@@ -196,7 +196,7 @@ export async function findDuplicates(files: FileEntry[], opts: DupOptions): Prom
           try { h = await fullHash(f.path); } catch { continue; }
           idx[key] = { size: f.size, mtime: f.mtimeMs, hash: h };
         }
-        if (++hashed % 200 === 0) opts.onProgress?.(`dedupe: ${hashed} hashes calculados`);
+        if (++hashed % 2000 === 0) opts.onProgress?.(`dedupe: ${hashed} hashes calculados`);
         const k2 = `${f.account ?? "-"}:${h}`;
         const a3 = byHash.get(k2) ?? [];
         a3.push(f);
@@ -227,7 +227,7 @@ export async function findDuplicates(files: FileEntry[], opts: DupOptions): Prom
       }
     }
     done++;
-    if (done % 50 === 0) opts.onProgress?.(`dedupe: ${done} grupos de tamanho processados`);
+    if (done % 500 === 0) opts.onProgress?.(`dedupe: ${done}/${bySize.size} grupos de tamanho`);
   }
 
   // 4) byte a byte antes de marcar remoção

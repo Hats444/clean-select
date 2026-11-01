@@ -81,6 +81,7 @@ export async function toTrashBatch(
   if (!items.length) return ids;
   await mkdir(TRASH_DIR, { recursive: true });
   const m = await loadManifest();
+  const errSeen = new Set<string>();
   for (const it of items) {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const dest = join(TRASH_DIR, id);
@@ -103,12 +104,18 @@ export async function toTrashBatch(
       if (isDir) size = await dirSize(destPath);
       m.push({ id, original: it.path, trashedAt: Date.now(), size, hash: it.meta?.hash, keptOriginal: it.meta?.keptOriginal, run: runId });
       ids.set(it.path, id);
-    } catch {
-      /* falhou esse item, segue */
+    } catch (err) {
+      // loga cada tipo de erro uma vez (ex.: EACCES no Android/media)
+      const reason = String((err as NodeJS.ErrnoException)?.code ?? err);
+      if (!errSeen.has(reason)) {
+        errSeen.add(reason);
+        await log(`trash batch falha (${reason}): ${it.path}`);
+        console.log(`        lixeira falhou [${reason}]: ${it.path.slice(0, 70)}`);
+      }
     }
   }
   await saveManifest(m);
-  await log(`trash batch: ${ids.size}/${items.length} itens`);
+  await log(`trash batch: ${ids.size}/${items.length} itens, ${items.length - ids.size} falhas`);
   return ids;
 }
 
